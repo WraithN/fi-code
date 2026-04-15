@@ -1,4 +1,4 @@
-use crate::agent::Part;
+use crate::message::Part;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::time::Duration;
@@ -231,7 +231,7 @@ pub trait AIClient: Send + Sync {
     async fn stream_message(
         &self,
         system_prompt: &str,
-        messages: &[crate::agent::Message],
+        messages: &[crate::message::Message],
         tools_schema: &serde_json::Value,
         on_chunk: &mut (dyn FnMut(Chunk) + Send),
     ) -> Result<()>;

@@ -6,7 +6,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::agent::{Message, Part, Role};
+use crate::message::{Message, Part, Role};
 use crate::provider::base_client::{AIClient, Chunk, ChunkContent, FinishReason, RetryConfig, send_with_retry};
 
 // =============================================================================

@@ -5,7 +5,7 @@ use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde_json::json;
 
-use crate::agent::{Message, Part, Role, ImageSource};
+use crate::message::{ImageSource, Message, Part, Role};
 use crate::provider::base_client::{AIClient, Chunk, ChunkContent, FinishReason, RetryConfig, send_with_retry};
 
 // =============================================================================
