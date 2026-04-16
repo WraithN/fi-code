@@ -3,7 +3,8 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "shun-code", version = env!("CARGO_PKG_VERSION"))]
 pub struct Args {
-    /// Enable debug logging (debug|info, default: info)
+    /// Enable debug logging (debug|trace|info|off, default: info)
+    #[cfg(debug_assertions)]
     #[arg(short = 'l', long = "log", value_name = "LEVEL", default_value = "info")]
     pub log_level: String,
 

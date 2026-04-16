@@ -24,7 +24,6 @@ use rustyline::DefaultEditor;
 use agent::{agent_loop, LoopState};
 use clap::Parser;
 use utils::cli::Args;
-use utils::log::{set_log_level, LogLevel};
 use provider::Provider;
 use session::message::{Message, Role};
 use session::{SessionManager, SessionMeta, SessionStatus};
@@ -39,7 +38,12 @@ use std::path::PathBuf;
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    set_log_level(LogLevel::from_str(&args.log_level));
+    #[cfg(debug_assertions)]
+    {
+        use utils::log::{set_log_level, LogLevel};
+        set_log_level(LogLevel::from_str(&args.log_level));
+        log_info!("shun-code starting | log_level={}", args.log_level);
+    }
 
     let config_dir = directories::ProjectDirs::from("", "", "shun-code")
         .map(|d| d.config_dir().to_path_buf())
