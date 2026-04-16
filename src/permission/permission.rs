@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
+use crate::log_debug;
+
 /// 风险等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskType {
@@ -79,11 +81,13 @@ impl PermissionAction {
         } else {
             RiskType::Low
         };
-        (
-            Self::Ask,
-            risk,
-            format!("tool {} requires user confirmation", tool_name),
-        )
+        let action = Self::Ask;
+        let reason = format!("tool {} requires user confirmation", tool_name);
+        log_debug!(
+            "permission check | tool={} | action={:?} | risk={:?} | reason={}",
+            tool_name, action, risk, reason
+        );
+        (action, risk, reason)
     }
 }
 
@@ -108,9 +112,16 @@ impl PermissionChecker {
         let (action, risk, reason) = PermissionAction::match_action(tool_name, input);
 
         match action {
-            PermissionAction::Deny => Err(format!("Permission denied: {}", reason)),
-            PermissionAction::Allow => crate::tools::tool_call(tool_name, input),
+            PermissionAction::Deny => {
+                log_debug!("permission denied | tool={} | reason={}", tool_name, reason);
+                Err(format!("Permission denied: {}", reason))
+            }
+            PermissionAction::Allow => {
+                log_debug!("permission allowed | tool={}", tool_name);
+                crate::tools::tool_call(tool_name, input)
+            }
             PermissionAction::Ask => {
+                log_debug!("permission ask | tool={} | risk={:?} | reason={}", tool_name, risk, reason);
                 println!(
                     "[Permission] Tool '{}' requires confirmation (risk: {:?}, reason: {})",
                     tool_name, risk, reason
