@@ -5,7 +5,12 @@ use clap::Parser;
 pub struct Args {
     /// Enable debug logging (debug|trace|info|off, default: info)
     #[cfg(debug_assertions)]
-    #[arg(short = 'l', long = "log", value_name = "LEVEL", default_value = "info")]
+    #[arg(
+        short = 'l',
+        long = "log",
+        value_name = "LEVEL",
+        default_value = "info"
+    )]
     pub log_level: String,
 
     /// Enter interactive REPL mode

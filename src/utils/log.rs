@@ -93,7 +93,7 @@ macro_rules! log_block {
                         $crate::utils::log::LogLevel::Trace => "TRACE",
                         _ => "INFO",
                     },
-                    module_path!()
+                    module_path!(),
                 );
                 let sep_width = 50;
                 eprintln!("{} {:=^sep_width$}", prefix, format!(" {} ", $title));

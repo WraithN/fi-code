@@ -90,7 +90,12 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
             .chars()
             .take(150)
             .collect();
-        log_debug!("message[{}] | role={:?} | preview={}", idx, msg.role, preview);
+        log_debug!(
+            "message[{}] | role={:?} | preview={}",
+            idx,
+            msg.role,
+            preview
+        );
         log_trace!(
             "message[{}] | role={:?} | parts={:?}",
             idx,
@@ -134,10 +139,17 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
                     }
                     // 完整的工具调用块（客户端已拼装完毕）
                     ChunkContent::ToolUse(ref tool) => {
-                        if let Part::ToolUse { id, name, arguments } = tool {
+                        if let Part::ToolUse {
+                            id,
+                            name,
+                            arguments,
+                        } = tool
+                        {
                             log_debug!(
                                 "LLM tool_use | id={} | name={} | args={}",
-                                id, name, arguments
+                                id,
+                                name,
+                                arguments
                             );
                         }
                         content_blocks.push(tool.clone());
