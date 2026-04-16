@@ -40,7 +40,7 @@ pub fn current_log_level() -> LogLevel {
 
 pub fn log_prefix(level: &str, module: &str) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-    format!("{} [{:<5}] [{:<30}]", now, level, module)
+    format!("{} [{:<5}] [{:<30.30}]", now, level, module)
 }
 
 #[macro_export]
@@ -84,10 +84,11 @@ macro_rules! log_block {
     ($level:expr, $title:expr, $content:expr) => {
         #[cfg(debug_assertions)]
         {
-            let enabled = $crate::utils::log::current_log_level().enabled($level);
+            let __level = $level;
+            let enabled = $crate::utils::log::current_log_level().enabled(__level);
             if enabled {
                 let prefix = $crate::utils::log::log_prefix(
-                    match $level {
+                    match __level {
                         $crate::utils::log::LogLevel::Debug => "DEBUG",
                         $crate::utils::log::LogLevel::Trace => "TRACE",
                         _ => "INFO",
@@ -122,5 +123,13 @@ mod tests {
         assert!(LogLevel::Debug.enabled(LogLevel::Debug));
         assert!(LogLevel::Trace.enabled(LogLevel::Debug));
         assert!(!LogLevel::Info.enabled(LogLevel::Debug));
+    }
+
+    #[test]
+    fn test_atomic_set_and_get() {
+        set_log_level(LogLevel::Trace);
+        assert_eq!(current_log_level(), LogLevel::Trace);
+        set_log_level(LogLevel::Info);
+        assert_eq!(current_log_level(), LogLevel::Info);
     }
 }
