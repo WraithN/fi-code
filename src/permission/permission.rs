@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
+use crate::log_debug;
+
 /// 风险等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskType {
@@ -35,55 +37,55 @@ impl PermissionAction {
         };
 
         // ========== DENY 场景 ==========
-        if tool_name == "bash" {
+        let result = if tool_name == "bash" {
             // sudo 越权访问
             if command.contains("sudo") {
-                return (
+                (
                     Self::Deny,
                     RiskType::Critical,
                     "sudo privilege escalation detected".to_string(),
-                );
-            }
-
-            // rm -rf 高危操作
-            if command.contains("rm -rf") || command.contains("rm -fr") {
-                return (
+                )
+            } else if command.contains("rm -rf") || command.contains("rm -fr") {
+                (
                     Self::Deny,
                     RiskType::Critical,
                     "rm -rf dangerous operation detected".to_string(),
-                );
-            }
-
-            // bash 注入攻击（检测常见特殊字符和命令替换）
-            if is_bash_injection(&command) {
-                return (
+                )
+            } else if is_bash_injection(&command) {
+                (
                     Self::Deny,
                     RiskType::High,
                     "potential bash injection attack detected".to_string(),
-                );
+                )
+            } else {
+                (
+                    Self::Ask,
+                    RiskType::High,
+                    "tool bash requires user confirmation".to_string(),
+                )
             }
-        }
-
-        // ========== ALLOW 场景 ==========
-        if tool_name == "read_file" || tool_name == "read" || tool_name == "grep" {
-            return (
+        } else if tool_name == "read_file" || tool_name == "read" || tool_name == "grep" {
+            (
                 Self::Allow,
                 RiskType::Low,
                 format!("tool {} is in allowlist", tool_name),
-            );
-        }
-
-        // ========== 其他场景默认 ASK ==========
-        let risk = if tool_name == "bash" {
-            RiskType::High
+            )
         } else {
-            RiskType::Low
+            (
+                Self::Ask,
+                RiskType::Low,
+                format!("tool {} requires user confirmation", tool_name),
+            )
         };
-        (
-            Self::Ask,
-            risk,
-            format!("tool {} requires user confirmation", tool_name),
-        )
+
+        log_debug!(
+            "permission check | tool={} | action={:?} | risk={:?} | reason={}",
+            tool_name,
+            result.0,
+            result.1,
+            result.2
+        );
+        result
     }
 }
 
@@ -105,15 +107,31 @@ impl PermissionChecker {
         tool_name: &str,
         input: &HashMap<String, serde_json::Value>,
     ) -> Result<String, String> {
-        let (action, risk, reason) = PermissionAction::match_action(tool_name, input);
+        let result = PermissionAction::match_action(tool_name, input);
 
-        match action {
-            PermissionAction::Deny => Err(format!("Permission denied: {}", reason)),
-            PermissionAction::Allow => crate::tools::tool_call(tool_name, input),
+        match result.0 {
+            PermissionAction::Deny => {
+                log_debug!(
+                    "permission denied | tool={} | reason={}",
+                    tool_name,
+                    result.2
+                );
+                Err(format!("Permission denied: {}", result.2))
+            }
+            PermissionAction::Allow => {
+                log_debug!("permission allowed | tool={}", tool_name);
+                crate::tools::tool_call(tool_name, input)
+            }
             PermissionAction::Ask => {
+                log_debug!(
+                    "permission ask | tool={} | risk={:?} | reason={}",
+                    tool_name,
+                    result.1,
+                    result.2
+                );
                 println!(
                     "[Permission] Tool '{}' requires confirmation (risk: {:?}, reason: {})",
-                    tool_name, risk, reason
+                    tool_name, result.1, result.2
                 );
                 print!("Allow execution? (Yes/No): ");
                 io::stdout().flush().map_err(|e| e.to_string())?;

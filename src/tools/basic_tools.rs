@@ -1,3 +1,4 @@
+use crate::log_trace;
 use crate::utils::workspace::workspace_dir;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -52,6 +53,7 @@ impl BasicTool {
 
     pub fn run_read(path: &str, limit: Option<usize>) -> Result<String, String> {
         let path = Self::safe_path(path)?;
+        log_trace!("run_read | path={:?} | limit={:?}", path, limit);
 
         let file = File::open(&path).map_err(|e| format!("Error: {}", e))?;
 
@@ -85,6 +87,7 @@ impl BasicTool {
     // 主线程通过 `mpsc::channel` 接收结果，并用 `recv_timeout` 实现超时控制。
 
     pub fn run_bash(command: &str) -> String {
+        log_trace!("run_bash | command={}", command);
         let command = command.to_string();
         let (tx, rx) = mpsc::channel();
 
@@ -118,6 +121,11 @@ impl BasicTool {
                 // `.trim()` 去除首尾空白，返回 &str
                 // `.to_string()` 将 &str 转换为拥有的 String
                 let combined = format!("{}{}", stdout, stderr).trim().to_string();
+                log_trace!(
+                    "run_bash result | len={} | preview={}",
+                    combined.len(),
+                    combined.chars().take(200).collect::<String>()
+                );
 
                 if combined.is_empty() {
                     "(no output)".to_string()
@@ -143,6 +151,7 @@ impl BasicTool {
 
     pub fn run_write(path: &str, content: &str) -> Result<String, String> {
         let fp = Self::safe_path(path)?;
+        log_trace!("run_write | path={:?} | content_len={}", fp, content.len());
         if let Some(parent) = fp.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("Error: {e}"))?;
         }
@@ -158,6 +167,12 @@ impl BasicTool {
 
     pub fn run_edit(path: &str, old_text: &str, new_text: &str) -> Result<String, String> {
         let fp = Self::safe_path(path)?;
+        log_trace!(
+            "run_edit | path={:?} | old_len={} | new_len={}",
+            fp,
+            old_text.len(),
+            new_text.len()
+        );
         let content = std::fs::read_to_string(&fp).map_err(|e| format!("Error: {}", e))?;
 
         if !content.contains(old_text) {
@@ -176,6 +191,7 @@ impl BasicTool {
     // =========================================================================
 
     pub fn run_web_fetch(url: &str) -> Result<String, String> {
+        log_trace!("run_web_fetch | url={}", url);
         let resp = reqwest::blocking::get(url).map_err(|e| format!("Request failed: {}", e))?;
         let html = resp
             .text()
@@ -190,6 +206,7 @@ impl BasicTool {
 
     pub fn run_grep(dir: &str, pattern: &str) -> Result<String, String> {
         let dir = Self::safe_path(dir)?;
+        log_trace!("run_grep | dir={:?} | pattern={}", dir, pattern);
         let re = regex::Regex::new(pattern).map_err(|e| format!("Invalid regex: {}", e))?;
 
         let mut matches = Vec::new();

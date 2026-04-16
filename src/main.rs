@@ -23,13 +23,12 @@ use rustyline::DefaultEditor;
 
 use agent::{agent_loop, LoopState};
 use clap::Parser;
-use utils::cli::Args;
-use utils::log::set_debug;
-use utils::workspace::set_workspace;
 use provider::Provider;
 use session::message::{Message, Role};
 use session::{SessionManager, SessionMeta, SessionStatus};
 use std::path::PathBuf;
+use utils::cli::Args;
+use utils::workspace::set_workspace;
 
 // =============================================================================
 // 程序入口：main 函数
@@ -40,12 +39,18 @@ use std::path::PathBuf;
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    set_debug(args.log_level.eq_ignore_ascii_case("debug"));
+    #[cfg(debug_assertions)]
+    {
+        use utils::log::{set_log_level, LogLevel};
+        set_log_level(LogLevel::from_str(&args.log_level));
+        log_info!("shun-code starting | log_level={}", args.log_level);
+    }
 
     // 设置工作目录：命令行参数 > 默认用户主目录
-    let workspace = args.workspace.clone().unwrap_or_else(|| {
-        dirs::home_dir().expect("无法获取用户主目录")
-    });
+    let workspace = args
+        .workspace
+        .clone()
+        .unwrap_or_else(|| dirs::home_dir().expect("无法获取用户主目录"));
     if !workspace.exists() {
         std::fs::create_dir_all(&workspace)
             .with_context(|| format!("无法创建工作目录: {:?}", workspace))?;
@@ -53,7 +58,21 @@ async fn main() -> Result<()> {
     let workspace = workspace
         .canonicalize()
         .with_context(|| format!("无法解析工作目录: {:?}", workspace))?;
-    set_workspace(workspace);
+    set_workspace(workspace.clone());
+
+    log_info!(
+        "shun-code started | mode={} | workspace={:?}",
+        if args.interactive {
+            "interactive"
+        } else if args.command.is_some() {
+            "command"
+        } else if args.session.is_some() {
+            "session"
+        } else {
+            "none"
+        },
+        workspace
+    );
 
     let config_dir = directories::ProjectDirs::from("", "", "shun-code")
         .map(|d| d.config_dir().to_path_buf())
@@ -79,7 +98,11 @@ async fn main() -> Result<()> {
                         &s.id[..s.id.len().min(8)],
                         s.project_path,
                         s.message_count,
-                        if s.status == SessionStatus::Active { "active" } else { "archived" }
+                        if s.status == SessionStatus::Active {
+                            "active"
+                        } else {
+                            "archived"
+                        }
                     );
                 }
             }
@@ -101,7 +124,14 @@ async fn main() -> Result<()> {
         let cmd = cmd.trim();
         if !cmd.is_empty() {
             let mut session = session_manager.create_session(provider.model_name()?)?;
-            run_single_command(client.as_ref(), &session_manager, &sessions_dir, &mut session, cmd).await?;
+            run_single_command(
+                client.as_ref(),
+                &session_manager,
+                &sessions_dir,
+                &mut session,
+                cmd,
+            )
+            .await?;
         }
         return Ok(());
     }
@@ -120,10 +150,14 @@ async fn run_single_command(
 ) -> Result<()> {
     use crate::session::message::Part;
 
+    log_debug!("run_single_command | query_len={}", query.len());
+
     let user_msg = Message::new(
         session.id.clone(),
         Role::User,
-        vec![Part::Text { text: query.to_string() }],
+        vec![Part::Text {
+            text: query.to_string(),
+        }],
     );
     session.messages.push(user_msg.clone());
     let _ = session_manager.append_message(&session.id, &user_msg);
@@ -136,7 +170,8 @@ async fn run_single_command(
         let sm = SessionManager::new(sessions_dir.clone());
         let s = session.clone();
         move || sm.save_session(&s)
-    }).await?
+    })
+    .await?
     {
         eprintln!("Warning: failed to save session: {}", e);
     }
@@ -162,6 +197,8 @@ async fn run_interactive(
     let prompt_prefix = format!("{} >> ", &session.id[..session.id.len().min(8)]);
     let mut editor = DefaultEditor::new()?;
 
+    log_debug!("run_interactive | session_id={}", session.id);
+
     loop {
         let readline = editor.readline(prompt_prefix.cyan().to_string().as_str());
         match readline {
@@ -175,7 +212,9 @@ async fn run_interactive(
                 let user_msg = Message::new(
                     session.id.clone(),
                     Role::User,
-                    vec![session::message::Part::Text { text: query.to_string() }],
+                    vec![session::message::Part::Text {
+                        text: query.to_string(),
+                    }],
                 );
                 session.messages.push(user_msg.clone());
                 if let Err(e) = session_manager.append_message(&session.id, &user_msg) {
@@ -190,7 +229,8 @@ async fn run_interactive(
                     let sm = SessionManager::new(sessions_dir.clone());
                     let s = session.clone();
                     move || sm.save_session(&s)
-                }).await?
+                })
+                .await?
                 {
                     eprintln!("Warning: failed to save session: {}", e);
                 }

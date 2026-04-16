@@ -11,7 +11,9 @@
 use anyhow::Result;
 
 use crate::agent::PromptBuilder;
+use crate::log_block;
 use crate::log_debug;
+use crate::log_trace;
 use crate::provider::base_client::{AIClient, ChunkContent, FinishReason};
 use crate::provider::execute_tool_calls;
 use crate::session::message::{Message, Part, Role};
@@ -39,6 +41,9 @@ impl LoopState {
     }
 }
 
+#[cfg(debug_assertions)]
+static PROMPT_LOGGED_ONCE: std::sync::Once = std::sync::Once::new();
+
 // =============================================================================
 // 异步函数：运行一轮对话
 // =============================================================================
@@ -55,21 +60,54 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
     let mut finish_reason = None;
 
     let system_prompt = PromptBuilder::new().build(&tool_schema());
+
+    #[cfg(debug_assertions)]
+    PROMPT_LOGGED_ONCE.call_once(|| {
+        log_block!(
+            crate::utils::log::LogLevel::Debug,
+            "SYSTEM PROMPT (first)",
+            &system_prompt
+        );
+    });
+    log_block!(
+        crate::utils::log::LogLevel::Trace,
+        "SYSTEM PROMPT",
+        &system_prompt
+    );
+
     log_debug!(
         "run_one_turn start | turn={} | messages={}",
         state.turn_count,
         state.messages.len()
     );
-    log_debug!(
-        "system_prompt | len={} | preview={}",
-        system_prompt.len(),
-        system_prompt.chars().take(200).collect::<String>()
-    );
+
     for (idx, msg) in state.messages.iter().enumerate() {
-        let preview: String = msg.parts.iter().map(|p| format!("{:?}", p)).collect::<String>().chars().take(150).collect();
-        log_debug!("message[{}] | role={:?} | preview={}", idx, msg.role, preview);
+        let preview: String = msg
+            .parts
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect::<String>()
+            .chars()
+            .take(150)
+            .collect();
+        log_debug!(
+            "message[{}] | role={:?} | preview={}",
+            idx,
+            msg.role,
+            preview
+        );
+        log_trace!(
+            "message[{}] | role={:?} | parts={:?}",
+            idx,
+            msg.role,
+            msg.parts
+        );
     }
-    log_debug!("tools_schema | {}", serde_json::to_string(&tool_schema()).unwrap_or_default().chars().take(300).collect::<String>());
+
+    log_trace!(
+        "tools_schema | {}",
+        serde_json::to_string_pretty(&tool_schema()).unwrap_or_default()
+    );
 
     client
         .stream_message(
@@ -101,10 +139,17 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
                     }
                     // 完整的工具调用块（客户端已拼装完毕）
                     ChunkContent::ToolUse(ref tool) => {
-                        if let Part::ToolUse { id, name, arguments } = tool {
+                        if let Part::ToolUse {
+                            id,
+                            name,
+                            arguments,
+                        } = tool
+                        {
                             log_debug!(
                                 "LLM tool_use | id={} | name={} | args={}",
-                                id, name, arguments
+                                id,
+                                name,
+                                arguments
                             );
                         }
                         content_blocks.push(tool.clone());
@@ -135,6 +180,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
     for (idx, block) in content_blocks.iter().enumerate() {
         let preview = format!("{:?}", block).chars().take(200).collect::<String>();
         log_debug!("assistant block[{}] | {}", idx, preview);
+        log_trace!("assistant block[{}] | {:?}", idx, block);
     }
     state.messages.push(Message::new(
         session_id.clone(),
@@ -161,6 +207,9 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
         "pushing tool_results back to LLM | results={}",
         tool_results.len()
     );
+    for (idx, tr) in tool_results.iter().enumerate() {
+        log_trace!("tool_result[{}] | {:?}", idx, tr);
+    }
 
     // 将工具结果封装为 User 消息回传（符合 OpenAI / Anthropic API 的角色交替要求）
     state
@@ -171,7 +220,6 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
     state.transition_reason = Some("tool_result".to_string());
 
     log_debug!("run_one_turn end | will continue next turn");
-
     Ok(true)
 }
 
