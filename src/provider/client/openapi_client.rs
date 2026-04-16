@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::log_debug;
+use crate::log_trace;
 use crate::provider::base_client::{
     send_with_retry, AIClient, Chunk, ChunkContent, FinishReason, RetryConfig,
 };
@@ -73,10 +74,7 @@ impl AIClient for OpenAiClient {
             openai_messages.len(),
             body.get("tools").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
         );
-        log_debug!(
-            "OpenAI request body preview | {}",
-            body.to_string().chars().take(500).collect::<String>()
-        );
+        log_trace!("OpenAI request body | {}", serde_json::to_string_pretty(&body).unwrap_or_default());
         let request = self
             .client
             .post(&url)
@@ -134,7 +132,7 @@ where
                     continue;
                 }
 
-                log_debug!(
+                log_trace!(
                     "OpenAI SSE raw | {}",
                     data.chars().take(300).collect::<String>()
                 );
@@ -151,7 +149,7 @@ where
                             // 文本增量：直接回传
                             if let Some(text) = delta.get("content").and_then(|v| v.as_str()) {
                                 if !text.is_empty() {
-                                    log_debug!("OpenAI SSE text_delta | len={} | preview={}", text.len(), text.chars().take(80).collect::<String>());
+                                    log_trace!("OpenAI SSE text_delta | len={} | preview={}", text.len(), text.chars().take(80).collect::<String>());
                                     on_chunk(Chunk {
                                         content: ChunkContent::Text(text.to_string()),
                                     });
@@ -181,7 +179,7 @@ where
                                         .unwrap_or("")
                                         .to_string();
 
-                                    log_debug!(
+                                    log_trace!(
                                         "OpenAI SSE tool_call_delta | index={} | id={:?} | name={:?} | args={}",
                                         index, id, name, args
                                     );

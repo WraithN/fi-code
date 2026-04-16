@@ -1,3 +1,4 @@
+use crate::log_trace;
 use crate::session::message::Part;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -183,6 +184,12 @@ pub async fn send_with_retry(
                 if is_retryable_status(status) && attempt < config.max_retries {
                     let text = resp.text().await.unwrap_or_default();
                     let backoff = compute_backoff(attempt, config.base_delay, config.max_delay);
+                    log_trace!(
+                        "send_with_retry | attempt={} | status={} | backoff={:?}",
+                        attempt + 1,
+                        status,
+                        backoff
+                    );
                     eprintln!(
                         "[retry] HTTP {} (attempt {}/{}), retry in {:?}: {}",
                         status,
@@ -203,6 +210,12 @@ pub async fn send_with_retry(
                     return Err(err.into());
                 }
                 let backoff = compute_backoff(attempt, config.base_delay, config.max_delay);
+                log_trace!(
+                    "send_with_retry | attempt={} | error={} | backoff={:?}",
+                    attempt + 1,
+                    err,
+                    backoff
+                );
                 eprintln!(
                     "[retry] network error (attempt {}/{}), retry in {:?}: {}",
                     attempt + 1,
