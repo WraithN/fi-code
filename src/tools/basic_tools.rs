@@ -1,19 +1,10 @@
+use crate::utils::workspace::workspace_dir;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::mpsc;
-use std::sync::LazyLock;
 use std::time::Duration;
-
-// =============================================================================
-// Rust 基础概念：LazyLock 与全局状态
-// =============================================================================
-// `LazyLock` 是 Rust 标准库提供的懒初始化同步原语，适合在首次访问时才计算的全局常量。
-// 这里用它来获取程序启动时的工作目录，并在整个程序生命周期内共享。
-
-static WORKDIR: LazyLock<PathBuf> =
-    LazyLock::new(|| std::env::current_dir().expect("获取工作目录失败"));
 
 // =============================================================================
 // BasicTool：最底层的文件与命令操作封装
@@ -31,10 +22,11 @@ impl BasicTool {
     // `starts_with` 确保用户不会通过 `../../etc/passwd` 这种方式逃逸出工作目录
 
     fn safe_path(p: &str) -> Result<PathBuf, String> {
-        let path = WORKDIR.join(p);
+        let base = workspace_dir();
+        let path = base.join(p);
         // 如果路径已存在，直接 canonicalize 并检查是否在工作目录内
         if let Ok(canonical) = path.canonicalize() {
-            if !canonical.starts_with(&*WORKDIR) {
+            if !canonical.starts_with(&base) {
                 return Err(format!("路径逃逸出工作目录: {}", p));
             }
             return Ok(canonical);
@@ -44,7 +36,7 @@ impl BasicTool {
             let canonical_parent = parent
                 .canonicalize()
                 .map_err(|e| format!("路径解析失败: {}", e))?;
-            if !canonical_parent.starts_with(&*WORKDIR) {
+            if !canonical_parent.starts_with(&base) {
                 return Err(format!("路径逃逸出工作目录: {}", p));
             }
             return Ok(canonical_parent.join(path.file_name().unwrap_or_default()));
@@ -225,7 +217,7 @@ impl BasicTool {
                 // 忽略二进制文件：read_to_string 失败就跳过
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let relative = path
-                        .strip_prefix(&*WORKDIR)
+                        .strip_prefix(&workspace_dir())
                         .unwrap_or(&path)
                         .display()
                         .to_string();
@@ -253,21 +245,29 @@ impl BasicTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::workspace::set_workspace;
+
+    fn ensure_workspace() {
+        set_workspace(std::env::current_dir().expect("获取当前目录失败"));
+    }
 
     #[test]
     fn test_run_read() {
+        ensure_workspace();
         let lines = BasicTool::run_read("src/tools/basic_tools.rs", Some(10000)).unwrap();
         assert_ne!(lines, "");
     }
 
     #[test]
     fn test_run_bash() {
+        ensure_workspace();
         let result = BasicTool::run_bash("ls -l");
         debug_assert_ne!(result, "");
     }
 
     #[test]
     fn test_run_write() {
+        ensure_workspace();
         let path: &str = "target/test_write_file";
         let result = BasicTool::run_write(path, "test");
         assert!(result.is_ok());
@@ -276,6 +276,7 @@ mod tests {
 
     #[test]
     fn test_run_edit() {
+        ensure_workspace();
         let path = "target/test_edit_file";
         let result = BasicTool::run_write(path, "this is a test file");
         assert!(result.is_ok());
@@ -286,6 +287,7 @@ mod tests {
 
     #[test]
     fn test_run_grep() {
+        ensure_workspace();
         let result = BasicTool::run_grep("src/tools", "run_read");
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -298,6 +300,7 @@ mod tests {
 
     #[test]
     fn test_run_grep_no_matches() {
+        ensure_workspace();
         let dir = "target/test_grep_dir";
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(format!("{}/test.txt", dir), "hello world").unwrap();

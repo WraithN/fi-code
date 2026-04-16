@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "shun-code", version = env!("CARGO_PKG_VERSION"))]
@@ -18,4 +19,8 @@ pub struct Args {
     /// Execute a single command and exit
     #[arg(short = 'c', long = "command", value_name = "MESSAGE")]
     pub command: Option<String>,
+
+    /// Workspace directory (default: home directory)
+    #[arg(short = 'w', long = "workspace", value_name = "PATH")]
+    pub workspace: Option<PathBuf>,
 }

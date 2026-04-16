@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::session::message::{current_timestamp_ms, Message, MessageBuilder, Part, Role};
+use crate::utils::workspace::workspace_dir;
 
 // =============================================================================
 // 会话状态枚举
@@ -90,8 +91,7 @@ impl SessionManager {
         fs::create_dir_all(&self.sessions_dir)?;
         let id = ulid::Ulid::new().to_string();
         let now = current_timestamp_ms();
-        let project_path = std::env::current_dir()
-            .unwrap_or_default()
+        let project_path = workspace_dir()
             .to_string_lossy()
             .to_string();
         let session = Session {
