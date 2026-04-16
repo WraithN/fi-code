@@ -74,6 +74,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // 如果没有显式指定操作模式，提示用户
+    if !args.interactive && args.session.is_none() && args.command.is_none() {
+        println!("Please provide an option. Use -h or --help for more information.");
+        return Ok(());
+    }
+
     let provider = Provider::new()?;
     let client = provider.get_client()?;
 
@@ -87,7 +93,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // 默认 / -i 交互式模式
+    // -i 交互式模式
     run_interactive(client.as_ref(), &provider, &session_manager, &sessions_dir).await?;
     Ok(())
 }
