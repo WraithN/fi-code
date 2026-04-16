@@ -23,12 +23,12 @@ use rustyline::DefaultEditor;
 
 use agent::{agent_loop, LoopState};
 use clap::Parser;
-use utils::workspace::set_workspace;
 use provider::Provider;
 use session::message::{Message, Role};
 use session::{SessionManager, SessionMeta, SessionStatus};
 use std::path::PathBuf;
 use utils::cli::Args;
+use utils::workspace::set_workspace;
 
 // =============================================================================
 // 程序入口：main 函数
@@ -47,9 +47,10 @@ async fn main() -> Result<()> {
     }
 
     // 设置工作目录：命令行参数 > 默认用户主目录
-    let workspace = args.workspace.clone().unwrap_or_else(|| {
-        dirs::home_dir().expect("无法获取用户主目录")
-    });
+    let workspace = args
+        .workspace
+        .clone()
+        .unwrap_or_else(|| dirs::home_dir().expect("无法获取用户主目录"));
     if !workspace.exists() {
         std::fs::create_dir_all(&workspace)
             .with_context(|| format!("无法创建工作目录: {:?}", workspace))?;

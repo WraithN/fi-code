@@ -92,9 +92,7 @@ impl SessionManager {
         fs::create_dir_all(&self.sessions_dir)?;
         let id = ulid::Ulid::new().to_string();
         let now = current_timestamp_ms();
-        let project_path = workspace_dir()
-            .to_string_lossy()
-            .to_string();
+        let project_path = workspace_dir().to_string_lossy().to_string();
         log_debug!(
             "session created | id={} | model={} | path={}",
             id,
