@@ -334,7 +334,11 @@ pub fn execute_tool_calls(parts: &[Part]) -> Vec<Part> {
 
             let (content, is_error) = match tool_call(name, &input) {
                 Ok(output) => {
-                    log_trace!("execute_tool_call raw output | name={} | output={}", name, output);
+                    log_trace!(
+                        "execute_tool_call raw output | name={} | output={}",
+                        name,
+                        output
+                    );
                     println!("{}", &output[..output.len().min(200)]);
                     log_debug!(
                         "execute_tool_call success | name={} | output_len={}",

@@ -1,4 +1,3 @@
-use crate::log_debug;
 use crate::log_trace;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -130,7 +129,11 @@ impl BasicTool {
                 // `.trim()` 去除首尾空白，返回 &str
                 // `.to_string()` 将 &str 转换为拥有的 String
                 let combined = format!("{}{}", stdout, stderr).trim().to_string();
-                log_trace!("run_bash result | len={} | preview={}", combined.len(), combined.chars().take(200).collect::<String>());
+                log_trace!(
+                    "run_bash result | len={} | preview={}",
+                    combined.len(),
+                    combined.chars().take(200).collect::<String>()
+                );
 
                 if combined.is_empty() {
                     "(no output)".to_string()
@@ -172,7 +175,12 @@ impl BasicTool {
 
     pub fn run_edit(path: &str, old_text: &str, new_text: &str) -> Result<String, String> {
         let fp = Self::safe_path(path)?;
-        log_trace!("run_edit | path={:?} | old_len={} | new_len={}", fp, old_text.len(), new_text.len());
+        log_trace!(
+            "run_edit | path={:?} | old_len={} | new_len={}",
+            fp,
+            old_text.len(),
+            new_text.len()
+        );
         let content = std::fs::read_to_string(&fp).map_err(|e| format!("Error: {}", e))?;
 
         if !content.contains(old_text) {
