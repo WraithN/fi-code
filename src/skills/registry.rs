@@ -178,7 +178,10 @@ mod tests {
         assert_eq!(entry.scope, "global");
         assert_eq!(entry.source_type, SkillSourceType::Global);
         assert_eq!(entry.symlink_path, PathBuf::from("/tmp/skills/test-skill"));
-        assert_eq!(entry.target_path, PathBuf::from("/home/user/skills/test-skill"));
+        assert_eq!(
+            entry.target_path,
+            PathBuf::from("/home/user/skills/test-skill")
+        );
         assert_eq!(entry.metadata.name, "test-skill");
         assert_eq!(entry.metadata.description, "A test skill for roundtrip");
         assert_eq!(entry.metadata.tags, vec!["test", "demo"]);

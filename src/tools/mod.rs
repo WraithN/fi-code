@@ -207,9 +207,11 @@ struct UseSkillHandler;
 impl ToolHandler for UseSkillHandler {
     fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
         let name = match &params[..] {
-            [ToolParameter::Json(v)] => {
-                v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string()
-            }
+            [ToolParameter::Json(v)] => v
+                .get("name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             [ToolParameter::String(n)] => n.clone(),
             _ => "".to_string(),
         };

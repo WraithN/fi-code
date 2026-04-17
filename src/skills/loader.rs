@@ -60,8 +60,8 @@ pub fn parse_skill_md(content: &str) -> Result<(String, String), String> {
 /// `map_err` 将一种错误类型转换为另一种，这里把 `serde_yaml` 的错误转为 `String`。
 pub fn load_skill_metadata_and_body(dir: &Path) -> Result<(SkillMetadata, String), String> {
     let skill_md_path = dir.join("SKILL.md");
-    let content =
-        fs::read_to_string(&skill_md_path).map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
+    let content = fs::read_to_string(&skill_md_path)
+        .map_err(|e| format!("Failed to read SKILL.md: {}", e))?;
 
     let (yaml_str, body) = parse_skill_md(&content)?;
 
@@ -148,7 +148,8 @@ mod tests {
     /// 测试正常解析包含完整 front matter 的 SKILL.md 内容
     #[test]
     fn test_parse_skill_md_valid() {
-        let content = "---\nname: test-skill\ndescription: A test skill\n---\n# Hello\nThis is the body.\n";
+        let content =
+            "---\nname: test-skill\ndescription: A test skill\n---\n# Hello\nThis is the body.\n";
         let result = parse_skill_md(content).unwrap();
         assert_eq!(result.0, "name: test-skill\ndescription: A test skill");
         assert_eq!(result.1, "# Hello\nThis is the body.\n");
