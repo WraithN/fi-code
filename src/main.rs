@@ -15,7 +15,7 @@ mod tools;
 mod utils;
 
 // `anyhow` 是一个错误处理库，提供了简化错误传播的功能
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 // `colored` 库用于终端彩色输出
 use colored::Colorize;
@@ -125,7 +125,23 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let config = Arc::new(RwLock::new(Config::default()));
+    let config = Arc::new(RwLock::new(Config::load()?));
+    let _watcher = crate::config::config::spawn_watcher(Arc::clone(&config))?;
+
+    if args.models {
+        let cfg = config.read().map_err(|_| anyhow!("配置锁中毒"))?;
+        println!("Providers and Models:");
+        for (provider_key, provider_cfg) in &cfg.provider {
+            println!("  {} ({})", provider_key, provider_cfg.name);
+            for (model_key, model_cfg) in &provider_cfg.models {
+                println!("    {} — {}", model_key, model_cfg.name);
+                println!("      context: {}, output: {}",
+                    model_cfg.limit.context, model_cfg.limit.output);
+            }
+        }
+        return Ok(());
+    }
+
     let provider = Provider::new(Arc::clone(&config))?;
     let client = provider.get_client()?;
 
