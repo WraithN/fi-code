@@ -1,6 +1,9 @@
 use super::{AIClient, AnthropicClient, OpenAiClient};
 use anyhow::{anyhow, Result};
 use std::env;
+use std::sync::{Arc, RwLock};
+
+use crate::config::Config;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ModelType {
@@ -16,8 +19,24 @@ struct Model {
     model_type: ModelType,
 }
 
-impl Model {
-    fn get_model() -> Result<Self> {
+pub struct Provider {
+    model: Option<Model>,
+}
+
+impl Provider {
+    pub fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
+        // 1. 优先尝试环境变量
+        if let Ok(model) = Self::from_env() {
+            return Ok(Self { model: Some(model) });
+        }
+
+        // 2. 降级到配置文件
+        let cfg = config.read().map_err(|_| anyhow!("配置锁中毒"))?;
+        let model = Self::from_config(&cfg)?;
+        Ok(Self { model: Some(model) })
+    }
+
+    fn from_env() -> Result<Model> {
         dotenvy::dotenv().ok();
 
         if let (Ok(api_key), Ok(base_url), Ok(model_name)) = (
@@ -25,7 +44,7 @@ impl Model {
             env::var("OPENAI_BASE_URL"),
             env::var("OPENAI_MODEL"),
         ) {
-            return Ok(Self {
+            return Ok(Model {
                 api_key,
                 base_url,
                 model_name,
@@ -40,7 +59,7 @@ impl Model {
             env::var("ANTHROPIC_BASE_URL"),
             env::var("ANTHROPIC_MODEL"),
         ) {
-            return Ok(Self {
+            return Ok(Model {
                 api_key,
                 base_url,
                 model_name,
@@ -49,19 +68,30 @@ impl Model {
         }
 
         Err(anyhow!(
-            "No API key found. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable."
+            "未找到环境变量配置。请设置 OPENAI_API_KEY 或 ANTHROPIC_API_KEY。"
         ))
     }
-}
 
-pub struct Provider {
-    model: Option<Model>,
-}
+    pub(crate) fn from_config(config: &Config) -> Result<Model> {
+        for (provider_name, provider_cfg) in &config.provider {
+            if provider_cfg.models.contains_key(&config.model) {
+                let model_type = match provider_name.as_str() {
+                    "anthropic" => ModelType::Anthropic,
+                    _ => ModelType::OpenAiCompatible,
+                };
+                return Ok(Model {
+                    api_key: provider_cfg.options.api_key.clone(),
+                    base_url: provider_cfg.options.base_url.clone(),
+                    model_name: config.model.clone(),
+                    model_type,
+                });
+            }
+        }
 
-impl Provider {
-    pub fn new() -> Result<Self> {
-        let model = Model::get_model()?;
-        Ok(Self { model: Some(model) })
+        Err(anyhow!(
+            "默认模型 '{}' 在配置中未找到",
+            config.model
+        ))
     }
 
     pub fn model_name(&self) -> Result<&str> {
@@ -103,6 +133,7 @@ mod tests {
     use super::*;
     use crate::provider::{AIClient, ChunkContent, FinishReason};
     use crate::session::message::{Message, Part, Role};
+    use std::collections::HashMap;
     use std::time::Duration;
 
     /// 探测 localhost:11434 是否有可用的 Ollama 服务，并返回一个可用模型名。
@@ -120,6 +151,50 @@ mod tests {
         let body: serde_json::Value = resp.json().await.ok()?;
         let models = body.get("models")?.as_array()?;
         models.first()?.get("name")?.as_str().map(|s| s.to_string())
+    }
+
+    #[test]
+    fn test_provider_from_config() {
+        use crate::config::models::{ModelConfig, ModelLimits, ProviderConfig, ProviderOptions};
+
+        let mut provider_map = HashMap::new();
+        provider_map.insert(
+            "openai".to_string(),
+            ProviderConfig {
+                npm: "@ai-sdk/openai-compatible".to_string(),
+                name: "OpenAI".to_string(),
+                options: ProviderOptions {
+                    api_key: "test-key".to_string(),
+                    base_url: "https://test.com".to_string(),
+                    timeout: 300000,
+                    chunk_timeout: 10000,
+                },
+                models: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "gpt-4".to_string(),
+                        ModelConfig {
+                            name: "GPT-4".to_string(),
+                            limit: ModelLimits {
+                                context: 128000,
+                                output: 4096,
+                            },
+                        },
+                    );
+                    m
+                },
+            },
+        );
+
+        let config = Config {
+            model: "gpt-4".to_string(),
+            provider: provider_map,
+        };
+
+        let model = Provider::from_config(&config).unwrap();
+        assert_eq!(model.model_name, "gpt-4");
+        assert_eq!(model.api_key, "test-key");
+        assert_eq!(model.model_type, ModelType::OpenAiCompatible);
     }
 
     /// 测试本地 Ollama 的 OpenAI 兼容流式接口：纯文本场景

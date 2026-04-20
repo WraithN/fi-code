@@ -25,10 +25,12 @@ use rustyline::DefaultEditor;
 
 use agent::{agent_loop, LoopState};
 use clap::Parser;
+use config::Config;
 use provider::Provider;
 use session::message::{Message, Role};
 use session::{SessionManager, SessionMeta, SessionStatus};
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use utils::cli::Args;
 use utils::workspace::set_workspace;
 
@@ -123,7 +125,8 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let provider = Provider::new()?;
+    let config = Arc::new(RwLock::new(Config::default()));
+    let provider = Provider::new(Arc::clone(&config))?;
     let client = provider.get_client()?;
 
     // -c 单命令模式
