@@ -95,10 +95,10 @@ mod tests {
         assert!(prompt.contains("[]"));
     }
 
-    #[test]
-    fn test_prompt_builder_with_real_tools() {
+    #[tokio::test]
+    async fn test_prompt_builder_with_real_tools() {
         let builder = PromptBuilder::new();
-        let schema = crate::tools::tool_schema();
+        let schema = crate::tools::tool_schema().await;
         let prompt = builder.build(&schema, &SkillRegistry::new());
         assert!(prompt.contains("bash"));
         assert!(prompt.contains("read"));

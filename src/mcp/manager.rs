@@ -92,8 +92,7 @@ impl McpManager {
 
     /// 创建客户端、完成初始化握手、获取工具列表并缓存
     async fn connect_and_load_tools(&self, name: &str, config: &McpServerConfig) -> Result<()> {
-        let mut client = Self::create_client(name, config).await?;
-        client.initialize().await?;
+        let client = Self::create_client(name, config).await?;
         let list_result = client.list_tools().await?;
 
         {
@@ -126,7 +125,8 @@ impl McpManager {
                     .command
                     .as_ref()
                     .ok_or_else(|| anyhow!("Local MCP server '{}' missing command", name))?;
-                let client = LocalClient::new(cmd).await?;
+                let mut client = LocalClient::new(cmd).await?;
+                client.initialize().await?;
                 Ok(Arc::new(client))
             }
             McpServerType::Remote => {
@@ -134,8 +134,8 @@ impl McpManager {
                     .url
                     .as_ref()
                     .ok_or_else(|| anyhow!("Remote MCP server '{}' missing url", name))?;
-                // 将嵌套的 `Box::new(RemoteClient::new(...)?)` 拆分为两步，提升可读性
-                let client = RemoteClient::new(url.clone(), config.headers.clone())?;
+                let mut client = RemoteClient::new(url.clone(), config.headers.clone())?;
+                client.initialize().await?;
                 Ok(Arc::new(client))
             }
         }
@@ -233,24 +233,16 @@ impl McpManager {
             tokio::time::sleep(Duration::from_secs(2_u64.pow(attempt - 1))).await;
 
             match Self::create_client(server_name, config).await {
-                Ok(mut client) => match client.initialize().await {
-                    Ok(_) => {
-                        let mut clients = self.clients.write().await;
-                        clients.insert(server_name.to_string(), client);
+                Ok(client) => {
+                    let mut clients = self.clients.write().await;
+                    clients.insert(server_name.to_string(), client);
 
-                        let mut status = self.status.write().await;
-                        status.insert(server_name.to_string(), McpServerStatus::Healthy);
+                    let mut status = self.status.write().await;
+                    status.insert(server_name.to_string(), McpServerStatus::Healthy);
 
-                        println!("MCP server '{}' reconnected successfully", server_name);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "MCP server '{}' init failed (attempt {}/{}): {}",
-                            server_name, attempt, self.max_retries, e
-                        );
-                    }
-                },
+                    println!("MCP server '{}' reconnected successfully", server_name);
+                    return Ok(());
+                }
                 Err(e) => {
                     eprintln!(
                         "MCP server '{}' reconnect failed (attempt {}/{}): {}",
@@ -292,15 +284,39 @@ mod tests {
     use crate::config::models::{McpServerConfig, McpServerType};
     use std::collections::HashMap;
 
+    fn mock_server_command() -> Vec<String> {
+        vec![
+            "npx".to_string(),
+            "-y".to_string(),
+            "@modelcontextprotocol/server-everything".to_string(),
+        ]
+    }
+
+    /// 检查 npx 是否可用，若不可用则 panic 并给出明确提示。
+    fn ensure_npx_available() {
+        if std::process::Command::new("npx")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            panic!(
+                "npx is not available in PATH. \
+                 MCP tests require Node.js/npm to install the mock server."
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_mcp_manager_mock_server() {
+        ensure_npx_available();
+
         let mut config = HashMap::new();
         config.insert(
             "mock".to_string(),
             McpServerConfig {
                 server_type: McpServerType::Local,
                 enabled: true,
-                command: Some(vec!["/tmp/mcp-mock-server.sh".to_string()]),
+                command: Some(mock_server_command()),
                 url: None,
                 headers: None,
             },
@@ -308,11 +324,15 @@ mod tests {
 
         let manager = McpManager::from_config(&config).await.unwrap();
 
-        // 验证工具列表
+        // 验证工具列表（server-everything 提供了 12 个工具）
         let tools = manager.tools_list().await;
-        assert_eq!(tools.len(), 2, "expected 2 tools, got: {:?}", tools);
+        assert!(
+            tools.len() >= 2,
+            "expected at least 2 tools, got: {:?}",
+            tools
+        );
         assert!(tools.iter().any(|(n, _)| n == "mcp:mock/echo"));
-        assert!(tools.iter().any(|(n, _)| n == "mcp:mock/add"));
+        assert!(tools.iter().any(|(n, _)| n == "mcp:mock/get-sum"));
 
         // 验证 tool_schema
         let schema = manager.tool_schema("mcp:mock/echo").await;
@@ -329,12 +349,12 @@ mod tests {
         assert_eq!(result.content.len(), 1);
         assert_eq!(result.content[0].text, "Echo: hello");
 
-        // 验证工具调用：add
+        // 验证工具调用：get-sum
         let result = manager
-            .tool_call("mcp:mock/add", serde_json::json!({"a": 3, "b": 5}))
+            .tool_call("mcp:mock/get-sum", serde_json::json!({"a": 3, "b": 5}))
             .await
             .unwrap();
-        assert_eq!(result.content[0].text, "8");
+        assert_eq!(result.content[0].text, "The sum of 3 and 5 is 8.");
     }
 
     #[tokio::test]
@@ -345,7 +365,7 @@ mod tests {
             McpServerConfig {
                 server_type: McpServerType::Local,
                 enabled: false,
-                command: Some(vec!["/tmp/mcp-mock-server.sh".to_string()]),
+                command: Some(mock_server_command()),
                 url: None,
                 headers: None,
             },

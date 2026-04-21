@@ -131,7 +131,7 @@ async fn main() -> Result<()> {
         if let Some(mcp_config) = &cfg.mcp {
             match McpManager::from_config(mcp_config).await {
                 Ok(manager) => {
-                    let status = manager.all_status();
+                    let status = manager.all_status().await;
                     log_info!("MCP initialized | servers={}", status.len());
                     for (name, st) in &status {
                         log_info!("MCP server status | {}={:?}", name, st);

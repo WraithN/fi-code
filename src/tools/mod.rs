@@ -327,7 +327,7 @@ pub fn init_tools() {
 // 现在 schema 完全从注册表里动态生成，新增工具时不需要再手动维护这段代码。
 // MCP 工具的轻量 schema（name + description，input_schema 为空）也在这里合并。
 
-pub fn tool_schema() -> serde_json::Value {
+pub async fn tool_schema() -> serde_json::Value {
     let mut schemas = Vec::new();
 
     // basic_tools：完整 schema（从注册表获取）
@@ -339,7 +339,7 @@ pub fn tool_schema() -> serde_json::Value {
     // mcp_tools：轻量 schema（仅 name + description，input_schema 为空对象）
     if let Ok(lock) = MCP_MANAGER.read() {
         if let Some(mcp) = lock.as_ref() {
-            for (full_name, desc) in mcp.tools_list() {
+            for (full_name, desc) in mcp.tools_list().await {
                 schemas.push(serde_json::json!({
                     "name": full_name,
                     "description": desc,
@@ -626,14 +626,30 @@ mod tests {
         use crate::mcp::manager::McpManager;
         use std::collections::HashMap;
 
-        // 初始化 mock MCP 服务器
+        // 检查 npx 是否可用
+        if std::process::Command::new("npx")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            panic!(
+                "npx is not available in PATH. \
+                 MCP end-to-end test requires Node.js/npm to install the mock server."
+            );
+        }
+
+        // 初始化 mock MCP 服务器（通过 npx 安装并启动）
         let mut config = HashMap::new();
         config.insert(
             "mock".to_string(),
             McpServerConfig {
                 server_type: McpServerType::Local,
                 enabled: true,
-                command: Some(vec!["/tmp/mcp-mock-server.sh".to_string()]),
+                command: Some(vec![
+                    "npx".to_string(),
+                    "-y".to_string(),
+                    "@modelcontextprotocol/server-everything".to_string(),
+                ]),
                 url: None,
                 headers: None,
             },
@@ -641,8 +657,8 @@ mod tests {
         let manager = McpManager::from_config(&config).await.unwrap();
         set_mcp_manager(std::sync::Arc::new(manager));
 
-        // 1. 验证 tool_schema 合并了 MCP 工具
-        let schema = tool_schema();
+        // 1. 验证 tool_schema 合并了 MCP 工具（server-everything 提供 12 个工具）
+        let schema = tool_schema().await;
         let arr = schema.as_array().unwrap();
         let mcp_tools: Vec<_> = arr
             .iter()
@@ -653,7 +669,11 @@ mod tests {
                     .unwrap_or(false)
             })
             .collect();
-        assert_eq!(mcp_tools.len(), 2, "expected 2 mcp tools in schema");
+        assert!(
+            mcp_tools.len() >= 2,
+            "expected at least 2 mcp tools in schema, got: {}",
+            mcp_tools.len()
+        );
         assert!(mcp_tools.iter().any(|v| {
             v.get("name").and_then(|n| n.as_str()) == Some("mcp:mock/echo")
         }));

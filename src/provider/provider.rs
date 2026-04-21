@@ -199,8 +199,10 @@ mod tests {
     #[tokio::test]
     async fn test_local_openai_compatible_text_stream() {
         let Some(model_name) = try_get_ollama_model().await else {
-            eprintln!("Ollama not available at localhost:11434, skipping test.");
-            return;
+            panic!(
+                "Ollama is not running on localhost:11434. \
+                 Please start Ollama to run this test."
+            );
         };
 
         let provider = Provider {
@@ -257,8 +259,10 @@ mod tests {
     #[tokio::test]
     async fn test_local_openai_compatible_tool_use_stream() {
         let Some(model_name) = try_get_ollama_model().await else {
-            eprintln!("Ollama not available at localhost:11434, skipping test.");
-            return;
+            panic!(
+                "Ollama is not running on localhost:11434. \
+                 Please start Ollama to run this test."
+            );
         };
 
         let provider = Provider {

@@ -109,7 +109,8 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
     let mut finish_reason = None;
 
     let registry = get_registry();
-    let system_prompt = PromptBuilder::new().build(&tool_schema(), registry);
+    let schema = tool_schema().await;
+    let system_prompt = PromptBuilder::new().build(&schema, registry);
 
     #[cfg(debug_assertions)]
     PROMPT_LOGGED_ONCE.call_once(|| {
@@ -154,16 +155,17 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
         );
     }
 
+    let schema = tool_schema().await;
     log_trace!(
         "tools_schema | {}",
-        serde_json::to_string_pretty(&tool_schema()).unwrap_or_default()
+        serde_json::to_string_pretty(&schema).unwrap_or_default()
     );
 
     client
         .stream_message(
             &system_prompt,
             &state.messages,
-            &tool_schema(),
+            &schema,
             &mut |chunk| process_chunk(chunk, &mut content_blocks, &mut finish_reason),
         )
         .await?;
@@ -222,7 +224,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
             if let Part::ToolUse { name, .. } = part {
                 if name.starts_with("mcp:") {
                     if let Some(mcp) = crate::tools::get_mcp_manager() {
-                        if let Some(schema) = mcp.tool_schema(name) {
+                        if let Some(schema) = mcp.tool_schema(name).await {
                             if let Some(input_schema) = schema.input_schema {
                                 schema_texts.push(format!(
                                     "工具 `{}` 的完整参数格式：\n```json\n{}\n```",
@@ -256,7 +258,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(client: &C, state: &mut LoopStat
                 .stream_message(
                     &system_prompt,
                     &state.messages,
-                    &tool_schema(),
+                    &schema,
                     &mut |chunk| process_chunk(chunk, &mut content_blocks, &mut finish_reason),
                 )
                 .await?;
