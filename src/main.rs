@@ -205,7 +205,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let provider = Provider::new(Arc::clone(&config))?;
+    let provider = Arc::new(Provider::new(Arc::clone(&config))?);
 
     // -c 单命令模式
     if let Some(cmd) = args.command {
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
         if !cmd.is_empty() {
             let mut session = session_manager.create_session(provider.model_name()?)?;
             run_single_command(
-                &provider,
+                Arc::clone(&provider),
                 &session_manager,
                 &sessions_dir,
                 &mut session,
@@ -225,12 +225,12 @@ async fn main() -> Result<()> {
     }
 
     // -i 交互式模式
-    run_interactive(&provider, &session_manager, &sessions_dir).await?;
+    run_interactive(Arc::clone(&provider), &session_manager, &sessions_dir).await?;
     Ok(())
 }
 
 async fn run_single_command(
-    provider: &Provider,
+    provider: Arc<Provider>,
     session_manager: &SessionManager,
     sessions_dir: &PathBuf,
     session: &mut session::Session,
@@ -321,7 +321,7 @@ async fn run_single_command(
 }
 
 async fn run_interactive(
-    provider: &Provider,
+    provider: Arc<Provider>,
     session_manager: &SessionManager,
     sessions_dir: &PathBuf,
 ) -> Result<()> {
