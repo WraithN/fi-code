@@ -67,13 +67,13 @@ impl AgentRunner {
             turn_count += 1;
             log_debug!("AgentRunner::run | turn={}/{} ", turn_count, self.max_turns);
 
-            let should_continue = self.run_one_turn(&mut messages).await?;
+            let (should_continue, finish_reason) = self.run_one_turn(&mut messages).await?;
+            last_finish_reason = finish_reason;
             if !should_continue {
                 break;
             }
         }
 
-        // 尝试从最后一条 Assistant 消息推断 finish_reason（如果循环自然结束）
         Ok(AgentRunResult {
             messages,
             turn_count,
@@ -86,14 +86,17 @@ impl AgentRunner {
     /// 2. 聚合 chunk 为完整的 Assistant 消息；
     /// 3. 若停止原因为 `ToolUse`，执行工具调用并将结果回传；
     /// 4. 返回 `true` 表示需要继续下一轮，`false` 表示本轮结束。
-    async fn run_one_turn(&self, messages: &mut Vec<Message>) -> Result<bool> {
+    async fn run_one_turn(
+        &self,
+        messages: &mut Vec<Message>,
+    ) -> Result<(bool, Option<FinishReason>)> {
         let mut content_blocks = Vec::new();
         let mut finish_reason = None;
 
         self.client
             .stream_message(
                 &self.system_prompt,
-                &messages,
+                messages,
                 &self.tools_schema,
                 &mut |chunk| Self::process_chunk(chunk, &mut content_blocks, &mut finish_reason),
             )
@@ -115,14 +118,14 @@ impl AgentRunner {
         // 非 ToolUse 则结束循环
         if finish_reason != Some(FinishReason::ToolUse) {
             log_debug!("AgentRunner::run_one_turn | finish_reason={:?}, stopping", finish_reason);
-            return Ok(false);
+            return Ok((false, finish_reason));
         }
 
         // 执行所有工具调用并收集结果
         let tool_results = execute_tool_calls(&content_blocks).await;
         if tool_results.is_empty() {
             log_debug!("AgentRunner::run_one_turn | tool_use but no results, stopping");
-            return Ok(false);
+            return Ok((false, finish_reason));
         }
 
         log_debug!(
@@ -133,7 +136,7 @@ impl AgentRunner {
         // 将工具结果封装为 User 消息回传
         messages.push(Message::new(session_id, Role::User, tool_results));
 
-        Ok(true)
+        Ok((true, finish_reason))
     }
 
     /// 处理流式 chunk，将内容聚合到 `content_blocks`。

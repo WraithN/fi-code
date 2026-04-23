@@ -7,6 +7,10 @@
 //
 // 消息类型（Message / Part / Role / ImageSource）已从本模块迁移到
 // 独立的 `message` 模块，供 session、provider、tools 等多个模块共享。
+//
+// NOTE: `AgentRunner`（位于 `crate::agent::runner`）是新的可配置 Agent 循环抽象。
+// `run_one_turn` 和 `agent_loop` 保留用于向后兼容现有调用方（如 main.rs）。
+// 新代码应优先使用 `AgentRunner`。
 
 use anyhow::Result;
 
