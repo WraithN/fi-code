@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use crate::server::rpc::{JsonRpcRequest, JsonRpcResponse};
 use crate::server::sse::SseEvent;
 
+#[derive(Clone)]
 pub struct TuiClient {
     client: Client,
     base_url: String,
