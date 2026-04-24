@@ -192,6 +192,7 @@ pub async fn run() -> Result<()> {
                 &sessions_dir,
                 &mut session,
                 cmd,
+                Arc::clone(&config),
             )
             .await?;
         }
@@ -199,7 +200,7 @@ pub async fn run() -> Result<()> {
     }
 
     // -i 交互式模式
-    run_interactive(Arc::clone(&provider), &session_manager, &sessions_dir).await?;
+    run_interactive(Arc::clone(&provider), &session_manager, &sessions_dir, config).await?;
     Ok(())
 }
 
@@ -209,8 +210,18 @@ async fn run_single_command(
     sessions_dir: &PathBuf,
     session: &mut crate::session::Session,
     query: &str,
+    config: Arc<RwLock<Config>>,
 ) -> Result<()> {
     log_debug!("run_single_command | query_len={}", query.len());
+
+    // 拦截 slash 指令
+    let slash_cmd = crate::commands::slash::parse(query);
+    if !matches!(slash_cmd, crate::commands::slash::SlashCommand::Unknown(ref s) if s.is_empty()) {
+        let provider_lock = Arc::new(std::sync::RwLock::new((*provider).clone()));
+        let handler = crate::commands::slash::SlashCommandHandler::new(provider_lock, config);
+        handler.execute(slash_cmd)?;
+        return Ok(());
+    }
 
     let user_msg = Message::new(
         session.id.clone(),
@@ -318,6 +329,7 @@ async fn run_interactive(
     provider: Arc<Provider>,
     session_manager: &SessionManager,
     sessions_dir: &PathBuf,
+    config: Arc<RwLock<Config>>,
 ) -> Result<()> {
     let mut session = choose_or_create_session(session_manager, provider.model_name()?).await?;
     let prompt_prefix = format!("{} >> ", &session.id[..session.id.len().min(8)]);
@@ -334,6 +346,20 @@ async fn run_interactive(
                     break;
                 }
                 editor.add_history_entry(query)?;
+
+                // 拦截 slash 指令
+                let slash_cmd = crate::commands::slash::parse(query);
+                if !matches!(slash_cmd, crate::commands::slash::SlashCommand::Unknown(ref s) if s.is_empty()) {
+                    let provider_lock = Arc::new(std::sync::RwLock::new((*provider).clone()));
+                    let handler = crate::commands::slash::SlashCommandHandler::new(
+                        provider_lock,
+                        Arc::clone(&config),
+                    );
+                    if let Err(e) = handler.execute(slash_cmd) {
+                        eprintln!("Error: {}", e);
+                    }
+                    continue;
+                }
 
                 let user_msg = Message::new(
                     session.id.clone(),
