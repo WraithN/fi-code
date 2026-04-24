@@ -219,6 +219,7 @@ mod tests {
             model: "gpt-4".to_string(),
             provider: provider_map,
             mcp: None,
+            server: None,
         };
 
         let model = Provider::from_config(&config).unwrap();
@@ -335,6 +336,7 @@ mod tests {
             model: "gpt-4".to_string(),
             provider: provider_map,
             mcp: None,
+            server: None,
         };
 
         let mut provider = Provider {
