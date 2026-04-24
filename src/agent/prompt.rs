@@ -163,8 +163,8 @@ mod tests {
         );
     }
 
-    use std::io::Write;
     use crate::utils::workspace::set_workspace;
+    use std::io::Write;
 
     #[test]
     fn test_prompt_with_agents_md() {
@@ -173,7 +173,8 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
         let agents_path = temp_dir.join("AGENTS.md");
         let mut file = std::fs::File::create(&agents_path).unwrap();
-        file.write_all(b"# Test Project\n\nThis is a test.").unwrap();
+        file.write_all(b"# Test Project\n\nThis is a test.")
+            .unwrap();
 
         set_workspace(temp_dir.clone());
 

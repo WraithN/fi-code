@@ -200,7 +200,13 @@ pub async fn run() -> Result<()> {
     }
 
     // -i 交互式模式
-    run_interactive(Arc::clone(&provider), &session_manager, &sessions_dir, config).await?;
+    run_interactive(
+        Arc::clone(&provider),
+        &session_manager,
+        &sessions_dir,
+        config,
+    )
+    .await?;
     Ok(())
 }
 
@@ -237,7 +243,15 @@ async fn run_single_command(
     let client = provider.get_client()?;
     agent_loop(client.as_ref(), &mut state).await?;
 
-    handle_task_plan_and_save(provider, session_manager, sessions_dir, session, state, false).await
+    handle_task_plan_and_save(
+        provider,
+        session_manager,
+        sessions_dir,
+        session,
+        state,
+        false,
+    )
+    .await
 }
 
 async fn handle_task_plan_and_save(
@@ -349,7 +363,8 @@ async fn run_interactive(
 
                 // 拦截 slash 指令
                 let slash_cmd = crate::commands::slash::parse(query);
-                if !matches!(slash_cmd, crate::commands::slash::SlashCommand::Unknown(ref s) if s.is_empty()) {
+                if !matches!(slash_cmd, crate::commands::slash::SlashCommand::Unknown(ref s) if s.is_empty())
+                {
                     let provider_lock = Arc::new(std::sync::RwLock::new((*provider).clone()));
                     let handler = crate::commands::slash::SlashCommandHandler::new(
                         provider_lock,

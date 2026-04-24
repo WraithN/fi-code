@@ -1,6 +1,6 @@
-use std::sync::{Arc, RwLock};
 use anyhow::{anyhow, Result};
 use colored::Colorize;
+use std::sync::{Arc, RwLock};
 
 use crate::config::Config;
 use crate::provider::Provider;
@@ -75,8 +75,11 @@ impl SlashCommandHandler {
 
     async fn handle_model(&self, model_key: Option<String>) -> Result<SlashCommandResult> {
         let cfg = self.config.read().map_err(|_| anyhow!("配置锁中毒"))?;
-        let mut provider = self.provider.write().map_err(|_| anyhow!("Provider锁中毒"))?;
-        
+        let mut provider = self
+            .provider
+            .write()
+            .map_err(|_| anyhow!("Provider锁中毒"))?;
+
         if let Some(key) = model_key {
             if provider.list_models(&cfg).iter().any(|(k, _)| k == &key) {
                 provider.set_model(&key, &cfg)?;
@@ -123,7 +126,11 @@ impl SlashCommandHandler {
             agents_path.display()
         );
 
-        let client = self.provider.read().map_err(|_| anyhow!("Provider锁中毒"))?.get_client()?;
+        let client = self
+            .provider
+            .read()
+            .map_err(|_| anyhow!("Provider锁中毒"))?
+            .get_client()?;
         let schema = tool_schema().await;
 
         let runner = AgentRunner::new(client, system_prompt, schema);
@@ -137,9 +144,9 @@ impl SlashCommandHandler {
 
         // 检查结果中是否包含 write 工具调用
         let has_write = result.messages.iter().any(|msg| {
-            msg.parts.iter().any(|part| {
-                matches!(part, Part::ToolUse { name, .. } if name == "write")
-            })
+            msg.parts
+                .iter()
+                .any(|part| matches!(part, Part::ToolUse { name, .. } if name == "write"))
         });
 
         if has_write || agents_path.exists() {
@@ -149,17 +156,18 @@ impl SlashCommandHandler {
                 agents_path.display()
             );
         } else {
-            println!(
-                "{} AGENTS.md 可能未生成，请检查对话结果",
-                "⚠️".yellow()
-            );
+            println!("{} AGENTS.md 可能未生成，请检查对话结果", "⚠️".yellow());
         }
 
         Ok(SlashCommandResult::Handled)
     }
 
     fn print_model_list(&self, cfg: &Config) -> Result<()> {
-        let models = self.provider.read().map_err(|_| anyhow!("Provider锁中毒"))?.list_models(cfg);
+        let models = self
+            .provider
+            .read()
+            .map_err(|_| anyhow!("Provider锁中毒"))?
+            .list_models(cfg);
         if models.is_empty() {
             println!("{} 配置文件中未找到任何模型", "❌".red());
             return Ok(());
@@ -207,17 +215,11 @@ mod tests {
 
     #[test]
     fn test_parse_unknown() {
-        assert_eq!(
-            parse("/foo"),
-            SlashCommand::Unknown("foo".to_string())
-        );
+        assert_eq!(parse("/foo"), SlashCommand::Unknown("foo".to_string()));
     }
 
     #[test]
     fn test_parse_not_slash() {
-        assert_eq!(
-            parse("hello world"),
-            SlashCommand::Unknown("".to_string())
-        );
+        assert_eq!(parse("hello world"), SlashCommand::Unknown("".to_string()));
     }
 }
