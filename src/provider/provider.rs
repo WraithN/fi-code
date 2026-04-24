@@ -99,15 +99,35 @@ impl Provider {
             .ok_or_else(|| anyhow!("Model not set"))
     }
 
-    /// 列出配置中所有可用模型（key, display_name）
-    pub fn list_models(&self, config: &Config) -> Vec<(String, String)> {
-        let mut models = Vec::new();
-        for (_provider_name, provider_cfg) in &config.provider {
-            for (key, model_cfg) in &provider_cfg.models {
-                models.push((key.clone(), model_cfg.name.clone()));
+    /// 运行时切换模型。
+    pub fn set_model(&mut self, model_name: &str, config: &Config) -> Result<()> {
+        for (provider_name, provider_cfg) in &config.provider {
+            if provider_cfg.models.contains_key(model_name) {
+                let model_type = match provider_name.as_str() {
+                    "anthropic" => ModelType::Anthropic,
+                    _ => ModelType::OpenAiCompatible,
+                };
+                self.model = Some(Model {
+                    api_key: provider_cfg.options.api_key.clone(),
+                    base_url: provider_cfg.options.base_url.clone(),
+                    model_name: model_name.to_string(),
+                    model_type,
+                });
+                return Ok(());
             }
         }
-        models
+        Err(anyhow!("模型 '{}' 在配置中未找到", model_name))
+    }
+
+    /// 枚举配置中所有可用模型。
+    pub fn list_models(&self, config: &Config) -> Vec<(String, String)> {
+        let mut result = Vec::new();
+        for (_provider_name, provider_cfg) in &config.provider {
+            for (model_key, model_cfg) in &provider_cfg.models {
+                result.push((model_key.clone(), model_cfg.name.clone()));
+            }
+        }
+        result
     }
 
     pub fn get_client(&self) -> Result<Box<dyn AIClient>> {
@@ -265,6 +285,80 @@ mod tests {
             Some(FinishReason::Stop),
             "text-only stream should finish with Stop"
         );
+    }
+
+    #[test]
+    fn test_set_model_and_list_models() {
+        use crate::config::models::{ModelConfig, ModelLimits, ProviderConfig, ProviderOptions};
+        use std::collections::HashMap;
+
+        let mut provider_map = HashMap::new();
+        provider_map.insert(
+            "openai".to_string(),
+            ProviderConfig {
+                npm: "@ai-sdk/openai-compatible".to_string(),
+                name: "OpenAI".to_string(),
+                options: ProviderOptions {
+                    api_key: "test-key".to_string(),
+                    base_url: "https://test.com".to_string(),
+                    timeout: 300000,
+                    chunk_timeout: 10000,
+                },
+                models: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "gpt-4".to_string(),
+                        ModelConfig {
+                            name: "GPT-4".to_string(),
+                            limit: ModelLimits {
+                                context: 128000,
+                                output: 4096,
+                            },
+                        },
+                    );
+                    m.insert(
+                        "gpt-3.5".to_string(),
+                        ModelConfig {
+                            name: "GPT-3.5".to_string(),
+                            limit: ModelLimits {
+                                context: 16000,
+                                output: 4096,
+                            },
+                        },
+                    );
+                    m
+                },
+            },
+        );
+
+        let config = Config {
+            model: "gpt-4".to_string(),
+            provider: provider_map,
+            mcp: None,
+        };
+
+        let mut provider = Provider {
+            model: Some(Model {
+                api_key: "test-key".to_string(),
+                base_url: "https://test.com".to_string(),
+                model_name: "gpt-4".to_string(),
+                model_type: ModelType::OpenAiCompatible,
+            }),
+        };
+        assert_eq!(provider.model_name().unwrap(), "gpt-4");
+
+        // 测试 list_models
+        let models = provider.list_models(&config);
+        assert_eq!(models.len(), 2);
+        assert!(models.iter().any(|(k, _)| k == "gpt-4"));
+        assert!(models.iter().any(|(k, _)| k == "gpt-3.5"));
+
+        // 测试 set_model
+        provider.set_model("gpt-3.5", &config).unwrap();
+        assert_eq!(provider.model_name().unwrap(), "gpt-3.5");
+
+        // 测试 set_model 无效模型
+        assert!(provider.set_model("invalid", &config).is_err());
     }
 
     /// 测试本地 Ollama 的 OpenAI 兼容流式接口：tool_use 场景

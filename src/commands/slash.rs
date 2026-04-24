@@ -45,12 +45,12 @@ pub fn parse(input: &str) -> SlashCommand {
 
 /// 指令执行器
 pub struct SlashCommandHandler {
-    provider: Arc<Provider>,
+    provider: Arc<RwLock<Provider>>,
     config: Arc<RwLock<Config>>,
 }
 
 impl SlashCommandHandler {
-    pub fn new(provider: Arc<Provider>, config: Arc<RwLock<Config>>) -> Self {
+    pub fn new(provider: Arc<RwLock<Provider>>, config: Arc<RwLock<Config>>) -> Self {
         Self { provider, config }
     }
 
@@ -78,35 +78,27 @@ impl SlashCommandHandler {
 
     fn handle_model(&self, model_key: Option<String>) -> Result<SlashCommandResult> {
         let cfg = self.config.read().map_err(|_| anyhow!("配置锁中毒"))?;
-
+        let mut provider = self.provider.write().map_err(|_| anyhow!("Provider锁中毒"))?;
+        
         if let Some(key) = model_key {
-            // 查找模型
-            let mut found = false;
-            for (_provider_name, provider_cfg) in &cfg.provider {
-                if provider_cfg.models.contains_key(&key) {
-                    found = true;
-                    break;
-                }
-            }
-
-            if found {
-                // 切换模型
-                // Note: Provider::set_model 在 Task 4 中实现
-                println!("{} 已切换模型: {}", "✅".green(), key);
+            if provider.list_models(&cfg).iter().any(|(k, _)| k == &key) {
+                provider.set_model(&key, &cfg)?;
+                println!("✅ 已切换模型: {}", key);
             } else {
-                eprintln!("{} 没有此模型: {}", "❌".red(), key);
+                eprintln!("❌ 没有此模型: {}", key);
+                // drop provider lock before print_model_list
+                drop(provider);
                 self.print_model_list(&cfg)?;
             }
         } else {
-            // 展示列表
+            drop(provider);
             self.print_model_list(&cfg)?;
         }
-
         Ok(SlashCommandResult::Handled)
     }
 
     fn print_model_list(&self, cfg: &Config) -> Result<()> {
-        let models = self.provider.list_models(cfg);
+        let models = self.provider.read().map_err(|_| anyhow!("Provider锁中毒"))?.list_models(cfg);
         if models.is_empty() {
             println!("{} 配置文件中未找到任何模型", "❌".red());
             return Ok(());
