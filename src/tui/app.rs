@@ -160,12 +160,12 @@ impl TuiApp {
                     return;
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('b')) => {
-                    self.layout.toggle_left();
+                    self.handle_app_event(AppEvent::ToggleLeftDrawer).await;
                     self.focus = FocusArea::LeftDrawer;
                     return;
                 }
                 (KeyModifiers::CONTROL, KeyCode::Char('h')) => {
-                    self.layout.toggle_right();
+                    self.handle_app_event(AppEvent::ToggleRightDrawer).await;
                     self.focus = FocusArea::RightDrawer;
                     return;
                 }
@@ -229,8 +229,56 @@ impl TuiApp {
             AppEvent::StopGeneration => {
                 self.is_generating = false;
             }
+            AppEvent::ToggleLeftDrawer => {
+                self.layout.toggle_left();
+                if self.layout.panel == crate::tui::layout::PanelState::LeftDrawer {
+                    self.focus = FocusArea::LeftDrawer;
+                    let client = self.client.clone();
+                    let tx = self.event_tx.clone();
+                    tokio::spawn(async move {
+                        if let Ok(tree) = client.get_file_tree(".").await {
+                            let _ = tree;
+                        }
+                    });
+                }
+            }
+            AppEvent::ToggleRightDrawer => {
+                self.layout.toggle_right();
+                if self.layout.panel == crate::tui::layout::PanelState::RightDrawer {
+                    self.focus = FocusArea::RightDrawer;
+                }
+            }
+            AppEvent::CloseDrawers => {
+                self.layout.close_drawers();
+            }
+            AppEvent::SelectModel(ref model) => {
+                self.header.set_current_model(model.clone());
+            }
+            AppEvent::SelectTheme(index) => {
+                if index < self.themes.len() {
+                    self.theme_index = index;
+                    self.theme = self.themes[index].clone();
+                }
+            }
+            AppEvent::SwitchSession(ref id) => {
+                let client = self.client.clone();
+                let tx = self.event_tx.clone();
+                let id = id.clone();
+                tokio::spawn(async move {
+                    match client.switch_session(&id).await {
+                        Ok(_) => {
+                            let _ = tx.send(AppEvent::ChatComplete).await;
+                        }
+                        Err(_) => {}
+                    }
+                });
+            }
             _ => {}
         }
+
+        // Sync StatusBar state
+        self.status_bar.set_generating(self.is_generating);
+        self.status_bar.set_panel(self.layout.panel);
 
         self.header.update(&event);
         self.chat.update(&event);
