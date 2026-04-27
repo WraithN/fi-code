@@ -28,6 +28,20 @@ pub struct ApiResponse<T> {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FileEntry {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub depth: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileTreeResult {
+    pub root: String,
+    pub entries: Vec<FileEntry>,
+}
+
 #[derive(Clone)]
 pub struct TuiClient {
     client: Client,
@@ -178,6 +192,21 @@ impl TuiClient {
             .send()
             .await?
             .json::<ApiResponse<SessionInfo>>()
+            .await?;
+
+        match resp.data {
+            Some(data) => Ok(data),
+            None => Err(anyhow::anyhow!(resp.error.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_file_tree(&self, path: &str) -> anyhow::Result<FileTreeResult> {
+        let resp = self
+            .client
+            .get(format!("{}/api/files?path={}", self.base_url, path))
+            .send()
+            .await?
+            .json::<ApiResponse<FileTreeResult>>()
             .await?;
 
         match resp.data {
