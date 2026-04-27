@@ -31,6 +31,7 @@ jsonc-parser = { version = "0.32", features = ["serde"] }
 axum = "0.7"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower-http = { version = "0.5", features = ["cors"] }
+walkdir = "2.5"
 
 [dev-dependencies]
 wiremock = "0.6"

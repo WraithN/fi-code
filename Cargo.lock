@@ -615,6 +615,7 @@ dependencies = [
  "tokio-stream",
  "tower-http 0.5.2",
  "ulid",
+ "walkdir",
  "wiremock",
 ]
 

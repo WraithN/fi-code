@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::provider::Provider;
 use crate::session::message::{Message, Part, Role};
 
+use super::file_api;
 use super::rpc::{handle_rpc, JsonRpcRequest, JsonRpcResponse};
 use super::session::HttpSessionManager;
 use super::session_api;
@@ -75,6 +76,8 @@ impl Server {
                 "/api/sessions/:id/switch",
                 post(session_api::switch_session),
             )
+            .route("/api/files", get(file_api::file_tree))
+            .route("/api/files/content", get(file_api::file_content))
             .layer(cors_layer(self.state.config.clone()))
             .with_state(self.state.clone());
 
