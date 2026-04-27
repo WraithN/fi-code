@@ -21,6 +21,33 @@ impl TuiClient {
         }
     }
 
+    /// 获取当前模型名
+    pub async fn get_status(&self) -> Result<String> {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "get_status".to_string(),
+            params: None,
+            id: Some(json!(1)),
+        };
+
+        let resp = self
+            .client
+            .post(format!("{}/rpc", self.base_url))
+            .json(&req)
+            .send()
+            .await?
+            .json::<JsonRpcResponse>()
+            .await?;
+
+        match resp.result {
+            Some(result) => Ok(result["current_model"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string()),
+            None => Err(anyhow!(resp.error.map(|e| e.message).unwrap_or_default())),
+        }
+    }
+
     /// 执行指令（JSON-RPC）
     pub async fn execute(&self, command: &str) -> Result<String> {
         let req = JsonRpcRequest {

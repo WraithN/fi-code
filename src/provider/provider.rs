@@ -43,7 +43,7 @@ impl Provider {
         if let (Ok(api_key), Ok(base_url), Ok(model_name)) = (
             env::var("OPENAI_API_KEY"),
             env::var("OPENAI_BASE_URL"),
-            env::var("OPENAI_MODEL"),
+            env::var("OPENAI_MODEL_NAME"),
         ) {
             return Ok(Model {
                 api_key,
@@ -58,7 +58,7 @@ impl Provider {
         if let (Ok(api_key), Ok(base_url), Ok(model_name)) = (
             anthropic_api_key,
             env::var("ANTHROPIC_BASE_URL"),
-            env::var("ANTHROPIC_MODEL"),
+            env::var("ANTHROPIC_MODEL_NAME"),
         ) {
             return Ok(Model {
                 api_key,

@@ -4,7 +4,6 @@ pub mod components;
 pub mod event;
 pub mod layout;
 pub mod theme;
-pub mod ui;
 
 use app::TuiApp;
 
