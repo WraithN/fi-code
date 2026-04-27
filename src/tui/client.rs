@@ -1,11 +1,32 @@
 use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::server::rpc::{JsonRpcRequest, JsonRpcResponse};
 use crate::server::sse::SseEvent;
+
+#[derive(Debug, Deserialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub name: String,
+    pub message_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionListResult {
+    pub sessions: Vec<SessionInfo>,
+    pub current_session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    pub data: Option<T>,
+    pub error: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct TuiClient {
@@ -116,5 +137,52 @@ impl TuiClient {
         }
 
         Ok(final_session_id.unwrap_or_default())
+    }
+
+    pub async fn list_sessions(&self) -> anyhow::Result<SessionListResult> {
+        let resp = self
+            .client
+            .get(format!("{}/api/sessions", self.base_url))
+            .send()
+            .await?
+            .json::<ApiResponse<SessionListResult>>()
+            .await?;
+
+        match resp.data {
+            Some(data) => Ok(data),
+            None => Err(anyhow::anyhow!(resp.error.unwrap_or_default())),
+        }
+    }
+
+    pub async fn create_session(&self, name: &str) -> anyhow::Result<SessionInfo> {
+        let body = serde_json::json!({"name": name});
+        let resp = self
+            .client
+            .post(format!("{}/api/sessions", self.base_url))
+            .json(&body)
+            .send()
+            .await?
+            .json::<ApiResponse<SessionInfo>>()
+            .await?;
+
+        match resp.data {
+            Some(data) => Ok(data),
+            None => Err(anyhow::anyhow!(resp.error.unwrap_or_default())),
+        }
+    }
+
+    pub async fn switch_session(&self, id: &str) -> anyhow::Result<SessionInfo> {
+        let resp = self
+            .client
+            .post(format!("{}/api/sessions/{}/switch", self.base_url, id))
+            .send()
+            .await?
+            .json::<ApiResponse<SessionInfo>>()
+            .await?;
+
+        match resp.data {
+            Some(data) => Ok(data),
+            None => Err(anyhow::anyhow!(resp.error.unwrap_or_default())),
+        }
     }
 }
