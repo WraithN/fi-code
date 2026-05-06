@@ -253,4 +253,22 @@ mod tests {
         chat.on_tick();
         assert_eq!(chat.spinner_frame, 1);
     }
+
+    #[test]
+    fn test_add_system_message() {
+        let mut chat = Chat::new();
+        chat.add_system_message("System alert");
+        assert_eq!(chat.messages.len(), 1);
+        assert_eq!(chat.messages[0].role, MessageRole::System);
+        assert_eq!(chat.messages[0].content, "System alert");
+    }
+
+    #[test]
+    fn test_clear_messages() {
+        let mut chat = Chat::new();
+        chat.add_user_message("hello");
+        chat.add_system_message("System alert");
+        chat.clear_messages();
+        assert!(chat.messages.is_empty());
+    }
 }
