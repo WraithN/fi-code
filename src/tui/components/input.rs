@@ -28,22 +28,22 @@ use ratatui::{
     Frame,
 };
 
+use crate::commands::registry::CommandMeta;
 use crate::tui::components::Component;
 use crate::tui::event::AppEvent;
 use crate::tui::theme::Theme;
 
-pub struct SlashCommand {
-    pub name: String,
-    pub description: String,
-}
-
+/// 底部输入框组件，处理用户键盘输入、光标管理、斜杠命令提示与消息提交。
 pub struct Input {
     content: String,
-    cursor_position: usize,
-    dropdown_visible: bool,
-    dropdown_items: Vec<SlashCommand>,
+    cursor_position: usize,       // 光标在 content 中的字节位置
+    dropdown_visible: bool,       // 斜杠命令下拉菜单是否可见
+    dropdown_items: Vec<CommandMeta>,
     dropdown_selected: usize,
-    session_id: Option<String>,
+    session_id: Option<String>,   // 当前会话 ID，用于在输入框上方显示
+    last_drawn_area: Option<Rect>,
+    dropdown_area: Option<Rect>,
+    commands_loaded: bool,
 }
 
 impl Input {
@@ -52,26 +52,12 @@ impl Input {
             content: String::new(),
             cursor_position: 0,
             dropdown_visible: false,
-            dropdown_items: vec![
-                SlashCommand {
-                    name: "clear".to_string(),
-                    description: "Clear conversation".to_string(),
-                },
-                SlashCommand {
-                    name: "model".to_string(),
-                    description: "Switch model".to_string(),
-                },
-                SlashCommand {
-                    name: "file".to_string(),
-                    description: "Attach file".to_string(),
-                },
-                SlashCommand {
-                    name: "help".to_string(),
-                    description: "Show help".to_string(),
-                },
-            ],
+            dropdown_items: Vec::new(),
             dropdown_selected: 0,
             session_id: None,
+            last_drawn_area: None,
+            dropdown_area: None,
+            commands_loaded: false,
         }
     }
 
@@ -79,17 +65,74 @@ impl Input {
         self.session_id = id;
     }
 
-    pub fn visible_lines(&self) -> u16 {
-        2  // 固定 2 行高度
+    pub fn set_commands(&mut self, commands: Vec<CommandMeta>) {
+        self.dropdown_items = commands;
+        self.commands_loaded = true;
+        if self.content == "/" {
+            self.dropdown_visible = true;
+            self.dropdown_selected = 0;
+        }
     }
 
+    pub fn is_dropdown_visible(&self) -> bool {
+        self.dropdown_visible
+    }
+
+    pub fn set_last_drawn_area(&mut self, area: Rect) {
+        self.last_drawn_area = Some(area);
+    }
+
+    pub fn update_dropdown_area(&mut self, input_area: Rect) {
+        if !self.dropdown_visible || self.dropdown_items.is_empty() {
+            self.dropdown_area = None;
+            return;
+        }
+        let items_len = self.dropdown_items.len() as u16;
+        let height = items_len + 2;
+        let width = 40u16.min(input_area.width);
+        let x = input_area.x;
+        let y = input_area.y.saturating_sub(height);
+        self.dropdown_area = Some(Rect::new(x, y, width, height));
+    }
+
+    pub fn set_content(&mut self, content: String) {
+        self.content = content;
+        self.cursor_position = self.content.len();
+    }
+
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
+    pub fn set_cursor_position(&mut self, pos: usize) {
+        self.cursor_position = pos;
+    }
+
+    pub fn close_dropdown(&mut self) {
+        self.dropdown_visible = false;
+    }
+
+    pub fn clear_content(&mut self) {
+        self.content.clear();
+        self.cursor_position = 0;
+        self.dropdown_visible = false;
+    }
+
+    /// 输入框显示行数（固定 2 行）。
+    pub fn visible_lines(&self) -> u16 {
+        2
+    }
+
+    /// 在光标位置插入字符，并向后移动光标。
     fn insert_char(&mut self, c: char) {
         self.content.insert(self.cursor_position, c);
         self.cursor_position += c.len_utf8();
     }
 
+    /// 删除光标前一个字符，并将光标前移。
     fn delete_char(&mut self) {
         if self.cursor_position > 0 {
+            // 通过 char_indices 找到前一个字符的起始字节位置
             let prev_pos = self.content[..self.cursor_position]
                 .char_indices()
                 .next_back()
@@ -100,17 +143,28 @@ impl Input {
         }
     }
 
-    fn check_slash_commands(&mut self) {
+    /// 检测是否触发斜杠命令下拉菜单：仅当内容恰好为 "/" 时显示。
+    fn check_slash_commands(&mut self) -> Option<AppEvent> {
         if self.content == "/" {
-            self.dropdown_visible = true;
-            self.dropdown_selected = 0;
+            if self.commands_loaded {
+                self.dropdown_visible = true;
+                self.dropdown_selected = 0;
+                None
+            } else {
+                Some(AppEvent::LoadCommands)
+            }
         } else if !self.content.starts_with('/') {
             self.dropdown_visible = false;
+            None
+        } else {
+            None
         }
     }
 }
 
 impl Component for Input {
+    /// 渲染输入框：包含可选的会话 ID 标签、带边框的输入区域、placeholder、光标位置，
+    /// 以及斜杠命令下拉菜单。
     fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme, is_focused: bool) {
         // 在输入框上方显示会话 ID
         let mut y_offset = 0u16;
@@ -156,7 +210,7 @@ impl Component for Input {
             frame.render_widget(text, inner);
         }
 
-        // 设置闪烁光标位置（支持多行）
+        // 计算光标在终端上的绝对坐标（支持多行换行）
         let text_before_cursor = &self.content[..self.cursor_position];
         let lines: Vec<&str> = text_before_cursor.split('\n').collect();
         let cursor_row = lines.len().saturating_sub(1) as u16;
@@ -170,81 +224,131 @@ impl Component for Input {
         }
     }
 
+    /// 处理输入框事件：支持下拉菜单导航、普通字符输入、回车提交、Shift+Enter 换行、退格删除。
     fn handle_event(&mut self, event: &Event, _focus: bool) -> Option<AppEvent> {
-        if let Event::Key(key) = event {
-            if key.kind != KeyEventKind::Press {
-                return None;
-            }
+        match event {
+            Event::Key(key) => {
+                if key.kind != KeyEventKind::Press {
+                    return None;
+                }
 
-            if self.dropdown_visible {
-                match key.code {
-                    KeyCode::Up => {
-                        if self.dropdown_selected > 0 {
-                            self.dropdown_selected -= 1;
+                if self.dropdown_visible {
+                    match key.code {
+                        KeyCode::Up => {
+                            if self.dropdown_selected > 0 {
+                                self.dropdown_selected -= 1;
+                            }
+                            return None;
                         }
-                        return None;
-                    }
-                    KeyCode::Down => {
-                        if self.dropdown_selected < self.dropdown_items.len().saturating_sub(1) {
-                            self.dropdown_selected += 1;
+                        KeyCode::Down => {
+                            if self.dropdown_selected < self.dropdown_items.len().saturating_sub(1) {
+                                self.dropdown_selected += 1;
+                            }
+                            return None;
                         }
-                        return None;
+                        KeyCode::Enter => {
+                            if let Some(cmd) = self.dropdown_items.get(self.dropdown_selected) {
+                                return Some(AppEvent::ExecuteSlashCommand {
+                                    name: cmd.name.clone(),
+                                    args_hint: cmd.args_hint.clone(),
+                                });
+                            }
+                        }
+                        KeyCode::Esc => {
+                            self.dropdown_visible = false;
+                            return None;
+                        }
+                        _ => {}
                     }
-                    KeyCode::Enter => {
-                        if let Some(cmd) = self.dropdown_items.get(self.dropdown_selected) {
+                }
+
+                match (key.modifiers, key.code) {
+                    (KeyModifiers::SHIFT, KeyCode::Enter) => {
+                        self.insert_char('\n');
+                        let ev = self.check_slash_commands();
+                        if ev.is_some() {
+                            return ev;
+                        }
+                        return Some(AppEvent::InputChanged(self.content.clone()));
+                    }
+                    (KeyModifiers::NONE, KeyCode::Enter) => {
+                        if !self.content.trim().is_empty() {
+                            let msg = self.content.clone();
                             self.content.clear();
                             self.cursor_position = 0;
                             self.dropdown_visible = false;
-                            return match cmd.name.as_str() {
-                                "clear" => Some(AppEvent::InputChanged(String::new())),
-                                "model" => Some(AppEvent::ToggleModelDropdown),
-                                _ => None,
-                            };
+                            return Some(AppEvent::SubmitMessage(msg));
                         }
                     }
-                    KeyCode::Esc => {
-                        self.dropdown_visible = false;
-                        return None;
+                    (KeyModifiers::NONE, KeyCode::Char(c)) => {
+                        self.insert_char(c);
+                        let ev = self.check_slash_commands();
+                        if ev.is_some() {
+                            return ev;
+                        }
+                        return Some(AppEvent::InputChanged(self.content.clone()));
+                    }
+                    (KeyModifiers::NONE, KeyCode::Backspace) => {
+                        self.delete_char();
+                        if self.content.is_empty() {
+                            self.dropdown_visible = false;
+                        }
+                        return Some(AppEvent::InputChanged(self.content.clone()));
                     }
                     _ => {}
                 }
+                None
             }
-
-            match (key.modifiers, key.code) {
-                (KeyModifiers::SHIFT, KeyCode::Enter) => {
-                    self.insert_char('\n');
-                    self.check_slash_commands();
-                    return Some(AppEvent::InputChanged(self.content.clone()));
+            Event::Mouse(mouse) => {
+                if !self.dropdown_visible {
+                    return None;
                 }
-                (KeyModifiers::NONE, KeyCode::Enter) => {
-                    if !self.content.trim().is_empty() {
-                        let msg = self.content.clone();
-                        self.content.clear();
-                        self.cursor_position = 0;
-                        self.dropdown_visible = false;
-                        return Some(AppEvent::SubmitMessage(msg));
+                match mouse.kind {
+                    crossterm::event::MouseEventKind::ScrollUp => {
+                        if self.dropdown_selected > 0 {
+                            self.dropdown_selected -= 1;
+                        }
+                        None
                     }
-                }
-                (KeyModifiers::NONE, KeyCode::Char(c)) => {
-                    self.insert_char(c);
-                    self.check_slash_commands();
-                    return Some(AppEvent::InputChanged(self.content.clone()));
-                }
-                (KeyModifiers::NONE, KeyCode::Backspace) => {
-                    self.delete_char();
-                    if self.content.is_empty() {
-                        self.dropdown_visible = false;
+                    crossterm::event::MouseEventKind::ScrollDown => {
+                        if self.dropdown_selected < self.dropdown_items.len().saturating_sub(1) {
+                            self.dropdown_selected += 1;
+                        }
+                        None
                     }
-                    return Some(AppEvent::InputChanged(self.content.clone()));
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                        if let Some(area) = self.dropdown_area {
+                            let mx = mouse.column;
+                            let my = mouse.row;
+                            if mx >= area.x && mx < area.x + area.width
+                                && my >= area.y && my < area.y + area.height
+                            {
+                                let item_y = my.saturating_sub(area.y + 1);
+                                let index = item_y as usize;
+                                if index < self.dropdown_items.len() {
+                                    self.dropdown_selected = index;
+                                    let cmd = &self.dropdown_items[index];
+                                    return Some(AppEvent::ExecuteSlashCommand {
+                                        name: cmd.name.clone(),
+                                        args_hint: cmd.args_hint.clone(),
+                                    });
+                                }
+                            } else {
+                                self.dropdown_visible = false;
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
                 }
-                _ => {}
             }
+            _ => None,
         }
-        None
     }
 }
 
 impl Input {
+    /// 渲染斜杠命令下拉菜单：显示在输入框上方，包含命令名与描述。
     fn draw_dropdown(&self, frame: &mut Frame, input_area: Rect, theme: &Theme) {
         let items: Vec<Line> = self
             .dropdown_items
@@ -258,7 +362,10 @@ impl Input {
                 };
                 Line::from(vec![
                     Span::styled(format!("/{}", cmd.name), style.add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" - {}", cmd.description), style),
+                    Span::styled(
+                        format!(" - {}", cmd.description),
+                        style,
+                    ),
                 ])
             })
             .collect();
@@ -309,6 +416,9 @@ mod tests {
     #[test]
     fn test_slash_command_detection() {
         let mut input = Input::new();
+        input.set_commands(vec![
+            CommandMeta { name: "clear".into(), description: "Clear".into(), args_hint: None },
+        ]);
         input.insert_char('/');
         input.check_slash_commands();
         assert!(input.dropdown_visible);

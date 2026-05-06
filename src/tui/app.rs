@@ -26,6 +26,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
+use crate::commands::registry::CommandMeta;
 use crate::server::sse::SseEvent;
 use crate::tui::components::{
     chat::Chat, header::Header, input::Input, left_drawer::LeftDrawer, right_drawer::RightDrawer,
@@ -161,6 +162,8 @@ impl TuiApp {
         self.header.draw(frame, areas.header, &self.theme, self.focus == FocusArea::Header);
         self.chat.draw(frame, messages_area, &self.theme, self.focus == FocusArea::Main);
         self.input.draw(frame, input_area, &self.theme, self.focus == FocusArea::Input);
+        self.input.set_last_drawn_area(input_area);
+        self.input.update_dropdown_area(input_area);
         self.status_bar.draw(frame, areas.status_bar, &self.theme, false);
 
         if let Some(overlay_area) = areas.overlay {
@@ -454,6 +457,21 @@ impl TuiApp {
                     let _ = tx.send(AppEvent::ChatComplete).await;
                 });
             }
+            AppEvent::LoadCommands => {
+                self.spawn_load_commands();
+            }
+            AppEvent::SetCommands(ref commands) => {
+                self.input.set_commands(commands.clone());
+            }
+            AppEvent::ExecuteSlashCommand { ref name, ref args_hint } => {
+                self.handle_execute_slash_command(name, args_hint);
+            }
+            AppEvent::ShowSystemMessage(ref msg) => {
+                self.chat.add_system_message(msg);
+            }
+            AppEvent::ClearChat => {
+                self.chat.clear_messages();
+            }
             _ => {}
         }
 
@@ -509,5 +527,59 @@ impl TuiApp {
                 }
             }
         });
+    }
+
+    /// 异步加载命令列表，失败时回退到硬编码命令。
+    fn spawn_load_commands(&self) {
+        let client = self.client.clone();
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            match client.list_commands().await {
+                Ok(commands) => {
+                    let _ = tx.send(AppEvent::SetCommands(commands)).await;
+                }
+                Err(_) => {
+                    let fallback = vec![
+                        CommandMeta { name: "clear".into(), description: "Clear conversation".into(), args_hint: None },
+                        CommandMeta { name: "model".into(), description: "Switch model".into(), args_hint: Some("[model_key]".into()) },
+                        CommandMeta { name: "init".into(), description: "Generate AGENTS.md".into(), args_hint: None },
+                        CommandMeta { name: "help".into(), description: "Show help".into(), args_hint: None },
+                    ];
+                    let _ = tx.send(AppEvent::SetCommands(fallback)).await;
+                }
+            }
+        });
+    }
+
+    /// 处理斜杠命令执行：有参数时等待补全，无参数时直接执行。
+    fn handle_execute_slash_command(&mut self, name: &str, args_hint: &Option<String>) {
+        self.input.set_content(format!("/{}", name));
+        if args_hint.is_some() {
+            self.input.set_cursor_position(self.input.content().len());
+            self.input.close_dropdown();
+        } else {
+            let client = self.client.clone();
+            let tx = self.event_tx.clone();
+            let session_id = self.header.session_id();
+            let cmd_name = name.to_string();
+            tokio::spawn(async move {
+                match client.execute_command(&cmd_name, None, session_id).await {
+                    Ok(output) => {
+                        if !matches!(output.r#type, crate::commands::registry::OutputType::Silent) {
+                            let _ = tx.send(AppEvent::ShowSystemMessage(output.message)).await;
+                        }
+                        if let Some(meta) = output.metadata {
+                            if let Some(model) = meta.get("current_model").and_then(|v| v.as_str()) {
+                                let _ = tx.send(AppEvent::SelectModel(model.to_string())).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppEvent::ShowSystemMessage(format!("Error: {}", e))).await;
+                    }
+                }
+            });
+            self.input.clear_content();
+        }
     }
 }
