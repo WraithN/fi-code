@@ -34,11 +34,14 @@ use tokio_stream::StreamExt;
 use tower_http::cors::CorsLayer;
 
 use crate::agent::{agent_loop, LoopState};
+use crate::commands::registry::{CommandContext, CommandHandler, CommandMeta, CommandOutput, CommandRegistry};
+use crate::commands::slash::{InitCommandHandler, ModelCommandHandler};
 use crate::config::Config;
 use crate::provider::Provider;
 use crate::session::message::{Message, Part, Role};
 
 use super::file_api;
+use super::models::ApiResponse;
 use super::rpc::{handle_rpc, JsonRpcRequest, JsonRpcResponse};
 use super::session::HttpSessionManager;
 use super::session_api;
@@ -50,6 +53,7 @@ pub struct AppState {
     pub provider: Arc<RwLock<Provider>>,
     pub config: Arc<RwLock<Config>>,
     pub sessions: Arc<HttpSessionManager>,
+    pub commands: Arc<CommandRegistry>,
 }
 
 pub struct Server {
@@ -71,11 +75,66 @@ impl Server {
             })
             .unwrap_or(4040);
 
+        let sessions = Arc::new(HttpSessionManager::new());
+        let mut commands = CommandRegistry::new();
+
+        // 注册 /clear 命令处理器
+        let sessions_for_clear = sessions.clone();
+        struct ClearHandler {
+            sessions: Arc<HttpSessionManager>,
+        }
+
+        #[async_trait::async_trait]
+        impl CommandHandler for ClearHandler {
+            async fn execute(
+                &self,
+                _args: Option<String>,
+                ctx: &CommandContext,
+            ) -> anyhow::Result<CommandOutput> {
+                if let Some(id) = &ctx.session_id {
+                    self.sessions.save(id, LoopState::new(Vec::new()));
+                }
+                Ok(CommandOutput::text("Conversation cleared"))
+            }
+        }
+
+        commands.register(
+            CommandMeta {
+                name: "clear".into(),
+                description: "Clear conversation".into(),
+                args_hint: None,
+            },
+            Box::new(ClearHandler {
+                sessions: sessions_for_clear,
+            }),
+        );
+
+        // 注册 /model 命令处理器
+        commands.register(
+            CommandMeta {
+                name: "model".into(),
+                description: "Switch model".into(),
+                args_hint: Some("[model_key]".into()),
+            },
+            Box::new(ModelCommandHandler),
+        );
+
+        // 注册 /init 命令处理器
+        commands.register(
+            CommandMeta {
+                name: "init".into(),
+                description: "Generate AGENTS.md".into(),
+                args_hint: None,
+            },
+            Box::new(InitCommandHandler),
+        );
+
         Self {
             state: AppState {
                 provider,
                 config,
-                sessions: Arc::new(HttpSessionManager::new()),
+                sessions,
+                commands: Arc::new(commands),
             },
             port,
         }
@@ -99,6 +158,8 @@ impl Server {
             )
             .route("/api/files", get(file_api::file_tree))
             .route("/api/files/content", get(file_api::file_content))
+            .route("/api/commands", get(handle_list_commands))
+            .route("/api/commands/:name/execute", post(handle_execute_command))
             .layer(cors_layer(self.state.config.clone()))
             .with_state(self.state.clone());
 
@@ -112,23 +173,23 @@ impl Server {
     }
 }
 
+fn build_cors_layer(origins: &[String]) -> CorsLayer {
+    let mut layer = CorsLayer::new();
+    for origin in origins {
+        let Ok(val) = origin.parse::<HeaderValue>() else { continue };
+        layer = layer.allow_origin(val);
+    }
+    layer
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+}
+
 /// CORS 中间件配置
 fn cors_layer(config: Arc<RwLock<Config>>) -> CorsLayer {
     let cfg = config.read().unwrap();
-    if let Some(server_cfg) = &cfg.server {
-        if let Some(origins) = &server_cfg.allowed_origins {
-            let mut layer = CorsLayer::new();
-            for origin in origins {
-                if let Ok(val) = origin.parse::<HeaderValue>() {
-                    layer = layer.allow_origin(val);
-                }
-            }
-            return layer
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
-        }
-    }
-    CorsLayer::permissive()
+    let Some(server_cfg) = &cfg.server else { return CorsLayer::permissive() };
+    let Some(origins) = &server_cfg.allowed_origins else { return CorsLayer::permissive() };
+    build_cors_layer(origins)
 }
 
 /// JSON-RPC 端点处理器
@@ -222,6 +283,60 @@ async fn handle_chat_endpoint(
     axum::response::Sse::new(stream).into_response()
 }
 
+/// 命令执行请求体
+#[derive(Deserialize)]
+struct ExecuteCommandBody {
+    args: Option<String>,
+    session_id: Option<String>,
+}
+
+/// 列出所有可用命令
+async fn handle_list_commands(
+    State(state): State<AppState>,
+) -> Json<ApiResponse<Vec<CommandMeta>>> {
+    let metas = state.commands.list();
+    let owned: Vec<_> = metas.into_iter().cloned().collect();
+    Json(ApiResponse::success(owned))
+}
+
+/// 执行指定命令
+async fn handle_execute_command(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    Json(body): Json<ExecuteCommandBody>,
+) -> Json<ApiResponse<CommandOutput>> {
+    let ctx = CommandContext {
+        provider: state.provider.clone(),
+        config: state.config.clone(),
+        session_id: body.session_id,
+    };
+
+    match state.commands.execute(&name, body.args, &ctx).await {
+        Ok(output) => Json(ApiResponse::success(output)),
+        Err(e) => Json(ApiResponse::error(e.to_string(), "COMMAND_ERROR")),
+    }
+}
+
+async fn send_last_assistant_text(messages: &[Message], sse_sender: &SseSender) {
+    let Some(last_msg) = messages.last() else { return };
+    if last_msg.role != Role::Assistant {
+        return;
+    }
+    let text = last_msg
+        .parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    if text.is_empty() {
+        return;
+    }
+    let _ = sse_sender.send(SseEvent::Message { content: text }).await;
+}
+
 /// 后台运行 Agent 对话
 async fn run_agent_chat(
     state: AppState,
@@ -274,22 +389,7 @@ async fn run_agent_chat(
             .await;
     } else {
         // 发送 assistant 的最后回复
-        if let Some(last_msg) = loop_state.messages.last() {
-            if last_msg.role == Role::Assistant {
-                let text = last_msg
-                    .parts
-                    .iter()
-                    .filter_map(|p| match p {
-                        Part::Text { text } => Some(text.clone()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("");
-                if !text.is_empty() {
-                    let _ = sse_sender.send(SseEvent::Message { content: text }).await;
-                }
-            }
-        }
+        send_last_assistant_text(&loop_state.messages, &sse_sender).await;
     }
 
     // 保存会话状态
