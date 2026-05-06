@@ -29,8 +29,11 @@ pub mod chat;
 pub mod header;
 pub mod input;
 pub mod left_drawer;
+pub mod log_window;
 pub mod right_drawer;
 pub mod status_bar;
+
+pub use log_window::LogWindow;
 
 /// 所有 TUI 组件必须实现的公共 trait。
 ///
