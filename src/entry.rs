@@ -81,8 +81,12 @@ async fn run_tui_mode() -> Result<()> {
     let config = Arc::new(RwLock::new(Config::load()?));
     let provider = Arc::new(RwLock::new(Provider::new(Arc::clone(&config))?));
 
+    let log_broadcaster = Arc::new(crate::utils::log_store::LogBroadcaster::new(1000));
+    crate::utils::log::set_global_log_broadcaster(Arc::clone(&log_broadcaster));
+
     // 启动 Server（后台任务）
-    let server = crate::server::Server::new(Arc::clone(&provider), Arc::clone(&config), None);
+    let server = crate::server::Server::new(Arc::clone(&provider), Arc::clone(&config), None)
+        .with_log_broadcaster(log_broadcaster);
     let server_handle = tokio::spawn(async move {
         server.run().await;
     });
