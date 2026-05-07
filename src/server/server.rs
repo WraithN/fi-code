@@ -55,7 +55,7 @@ pub struct AppState {
     pub config: Arc<RwLock<Config>>,
     pub sessions: Arc<HttpSessionManager>,
     pub commands: Arc<CommandRegistry>,
-    pub themes: Vec<crate::theme::ThemePreset>,
+    pub themes: Vec<crate::tui::theme::ThemePreset>,
     pub current_theme: Arc<RwLock<String>>,
     pub log_broadcaster: Option<Arc<crate::utils::log_store::LogBroadcaster>>,
 }
@@ -169,7 +169,7 @@ impl Server {
             }),
         );
 
-        let themes = crate::theme::ThemePreset::all_presets();
+        let themes = crate::tui::theme::ThemePreset::all_presets();
 
         Self {
             state: AppState {
@@ -373,7 +373,7 @@ async fn handle_execute_command(
 /// 列出所有可用主题
 async fn handle_list_themes(
     State(state): State<AppState>,
-) -> Json<ApiResponse<Vec<crate::theme::ThemePreset>>> {
+) -> Json<ApiResponse<Vec<crate::tui::theme::ThemePreset>>> {
     Json(ApiResponse::success(state.themes.clone()))
 }
 

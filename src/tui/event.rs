@@ -83,7 +83,7 @@ pub enum AppEvent {
     SetCommands(Vec<crate::commands::registry::CommandMeta>),
     ShowSystemMessage(String),
     LoadThemes,
-    SetThemes(Vec<crate::theme::ThemePreset>),
+    SetThemes(Vec<crate::tui::theme::ThemePreset>),
     ToggleLogWindow,
     SetLogHistory(Vec<LogLine>),
     AppendLog(LogLine),

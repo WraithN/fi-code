@@ -304,13 +304,13 @@ impl TuiClient {
     }
 
     /// 获取所有可用主题预设列表
-    pub async fn list_themes(&self) -> Result<Vec<crate::theme::ThemePreset>> {
+    pub async fn list_themes(&self) -> Result<Vec<crate::tui::theme::ThemePreset>> {
         let resp = self
             .client
             .get(format!("{}/api/themes", self.base_url))
             .send()
             .await?
-            .json::<ApiResponse<Vec<crate::theme::ThemePreset>>>()
+            .json::<ApiResponse<Vec<crate::tui::theme::ThemePreset>>>()
             .await?;
 
         match resp.data {

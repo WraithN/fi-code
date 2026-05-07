@@ -24,11 +24,12 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
 use crate::commands::registry::CommandMeta;
+use unicode_width::UnicodeWidthStr;
 use crate::tui::components::Component;
 use crate::tui::event::AppEvent;
 use crate::tui::theme::Theme;
@@ -251,7 +252,7 @@ impl Component for Input {
         let text_before_cursor = &self.content[..self.cursor_position];
         let lines: Vec<&str> = text_before_cursor.split('\n').collect();
         let cursor_row = lines.len().saturating_sub(1) as u16;
-        let cursor_col = lines.last().unwrap_or(&"").chars().count() as u16;
+        let cursor_col = lines.last().unwrap_or(&"").width() as u16;
         let cursor_x = inner.x + cursor_col;
         let cursor_y = inner.y + cursor_row;
         frame.set_cursor_position((cursor_x, cursor_y));
@@ -332,6 +333,28 @@ impl Component for Input {
                 }
 
                 match (key.modifiers, key.code) {
+                    (KeyModifiers::NONE, KeyCode::Left) => {
+                        if self.cursor_position > 0 {
+                            let prev_pos = self.content[..self.cursor_position]
+                                .char_indices()
+                                .next_back()
+                                .map(|(i, _)| i)
+                                .unwrap_or(0);
+                            self.cursor_position = prev_pos;
+                        }
+                        return None;
+                    }
+                    (KeyModifiers::NONE, KeyCode::Right) => {
+                        if self.cursor_position < self.content.len() {
+                            let next_pos = self.content[self.cursor_position..]
+                                .char_indices()
+                                .nth(1)
+                                .map(|(i, _)| self.cursor_position + i)
+                                .unwrap_or(self.content.len());
+                            self.cursor_position = next_pos;
+                        }
+                        return None;
+                    }
                     (KeyModifiers::SHIFT, KeyCode::Enter) => {
                         self.insert_char('\n');
                         let ev = self.check_slash_commands();
@@ -460,81 +483,99 @@ impl Input {
     /// 渲染斜杠命令下拉菜单：显示在输入框上方，包含命令名与描述。
     fn draw_dropdown(&self, frame: &mut Frame, input_area: Rect, theme: &Theme) {
         if self.submenu_mode {
-            self.draw_submenu(frame, input_area, theme);
+            let items: Vec<Line> = self
+                .submenu_items
+                .iter()
+                .enumerate()
+                .map(|(i, (name, desc))| {
+                    let style = if i == self.submenu_selected {
+                        theme.style_selection()
+                    } else {
+                        theme.style_primary()
+                    };
+                    Line::from(vec![
+                        Span::styled(name.clone(), style.add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" - {}", desc), style),
+                    ])
+                })
+                .collect();
+            self.draw_scrollable_dropdown(frame, input_area, theme, items, self.submenu_selected);
         } else {
-            self.draw_command_dropdown(frame, input_area, theme);
+            let items: Vec<Line> = self
+                .dropdown_items
+                .iter()
+                .enumerate()
+                .map(|(i, cmd)| {
+                    let style = if i == self.dropdown_selected {
+                        theme.style_selection()
+                    } else {
+                        theme.style_primary()
+                    };
+                    Line::from(vec![
+                        Span::styled(format!("/{}", cmd.name), style.add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" - {}", cmd.description), style),
+                    ])
+                })
+                .collect();
+            self.draw_scrollable_dropdown(frame, input_area, theme, items, self.dropdown_selected);
         }
     }
 
-    fn draw_submenu(&self, frame: &mut Frame, input_area: Rect, theme: &Theme) {
-        let items: Vec<Line> = self
-            .submenu_items
-            .iter()
-            .enumerate()
-            .map(|(i, (name, desc))| {
-                let style = if i == self.submenu_selected {
-                    theme.style_selection()
-                } else {
-                    theme.style_primary()
-                };
-                Line::from(vec![
-                    Span::styled(name.clone(), style.add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" - {}", desc), style),
-                ])
-            })
-            .collect();
+    /// 通用可滚动下拉菜单绘制：先清除背景防止文字穿透，限制最大高度，支持滚动条。
+    fn draw_scrollable_dropdown(
+        &self,
+        frame: &mut Frame,
+        input_area: Rect,
+        theme: &Theme,
+        items: Vec<Line>,
+        selected: usize,
+    ) {
+        const MAX_VISIBLE_ITEMS: u16 = 8;
 
-        let height = items.len() as u16 + 2;
+        let items_len = items.len();
+        let total_items = items_len as u16;
+        let visible_items = total_items.min(MAX_VISIBLE_ITEMS);
+        let height = visible_items + 2; // +2 for borders
         let width = input_area.width;
         let x = input_area.x;
         let y = input_area.y.saturating_sub(height);
-
         let area = Rect::new(x, y, width, height);
 
-        let paragraph = Paragraph::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border))
-                .style(theme.drawer_style()),
-        );
+        // 1. 先清除背景，防止底层文字穿透
+        frame.render_widget(Clear, area);
+
+        // 2. 计算滚动偏移，确保选中项始终落在可视区域内
+        let inner_height = visible_items as usize;
+        let scroll_y = if selected >= inner_height {
+            selected - inner_height + 1
+        } else {
+            0
+        };
+
+        let paragraph = Paragraph::new(items)
+            .scroll((scroll_y as u16, 0))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .style(theme.drawer_style()),
+            );
         frame.render_widget(paragraph, area);
-    }
 
-    fn draw_command_dropdown(&self, frame: &mut Frame, input_area: Rect, theme: &Theme) {
-        let items: Vec<Line> = self
-            .dropdown_items
-            .iter()
-            .enumerate()
-            .map(|(i, cmd)| {
-                let style = if i == self.dropdown_selected {
-                    theme.style_selection()
-                } else {
-                    theme.style_primary()
-                };
-                Line::from(vec![
-                    Span::styled(format!("/{}", cmd.name), style.add_modifier(Modifier::BOLD)),
-                    Span::styled(
-                        format!(" - {}", cmd.description),
-                        style,
-                    ),
-                ])
-            })
-            .collect();
-
-        let height = items.len() as u16 + 2;
-        let width = input_area.width;
-        let x = input_area.x;
-        let y = input_area.y.saturating_sub(height);
-
-        let area = Rect::new(x, y, width, height);
-
-        let paragraph = Paragraph::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border))
-                .style(theme.drawer_style()),
-        );
-        frame.render_widget(paragraph, area);
+        // 3. 内容超出可视区域时绘制滚动条
+        if total_items > MAX_VISIBLE_ITEMS {
+            let scrollbar_area = Rect::new(area.x + area.width - 1, area.y + 1, 1, area.height - 2);
+            let mut scrollbar_state = ScrollbarState::new(items_len)
+                .position(selected)
+                .viewport_content_length(inner_height);
+            frame.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(None)
+                    .end_symbol(None),
+                scrollbar_area,
+                &mut scrollbar_state,
+            );
+        }
     }
 }
 

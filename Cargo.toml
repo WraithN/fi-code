@@ -32,6 +32,7 @@ axum = "0.7"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower-http = { version = "0.5", features = ["cors"] }
 walkdir = "2.5"
+unicode-width = "0.2"
 
 [dev-dependencies]
 wiremock = "0.6"

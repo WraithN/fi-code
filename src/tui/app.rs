@@ -22,7 +22,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
@@ -48,7 +48,7 @@ pub struct TuiApp {
     theme: Arc<Theme>,
     themes: Vec<Arc<Theme>>,
     theme_index: usize,
-    theme_presets: Vec<crate::theme::ThemePreset>,
+    theme_presets: Vec<crate::tui::theme::ThemePreset>,
     preview_theme_backup: Option<(usize, Arc<Theme>)>,
 
     // === 各区域 UI 组件 ===
@@ -64,18 +64,40 @@ pub struct TuiApp {
     focus: FocusArea,    // 当前焦点所在区域
     is_generating: bool, // 是否正在等待模型生成回复
     should_quit: bool,   // 是否退出主循环
+    dirty: bool,         // 是否需要重绘
 
     // === 后端通信与事件通道 ===
-    client: TuiClient,                  // HTTP 客户端，对接本地 4040 端口服务
-    event_tx: mpsc::Sender<AppEvent>,   // 事件发送端（克隆给异步任务使用）
-    event_rx: mpsc::Receiver<AppEvent>, // 事件接收端（主循环消费）
+    client: TuiClient,                                      // HTTP 客户端，对接本地 4040 端口服务
+    event_tx: mpsc::Sender<AppEvent>,                       // 事件发送端（克隆给异步任务使用）
+    event_rx: mpsc::Receiver<AppEvent>,                     // 事件接收端（主循环消费）
+    crossterm_rx: mpsc::Receiver<anyhow::Result<Event>>,    // 终端事件接收端（后台线程读取后转发）
 }
 
 impl TuiApp {
     /// 创建应用实例，初始化默认主题、布局与各个子组件。
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::channel(100);
-        let presets = crate::theme::ThemePreset::all_presets();
+        let (crossterm_tx, crossterm_rx) = mpsc::channel(100);
+
+        // 在独立后台线程中持续读取终端事件，避免每次循环都启动 spawn_blocking 任务。
+        // 线程在应用退出、channel 被关闭后会自动结束。
+        std::thread::spawn(move || {
+            loop {
+                match crossterm::event::read() {
+                    Ok(event) => {
+                        if crossterm_tx.blocking_send(Ok(event)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        if crossterm_tx.blocking_send(Err(anyhow::anyhow!(e))).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        let presets = crate::tui::theme::ThemePreset::all_presets();
         let themes: Vec<Arc<Theme>> = presets
             .iter()
             .map(|p| Arc::new(Theme::from_preset(p)))
@@ -100,9 +122,11 @@ impl TuiApp {
             focus: FocusArea::Input,
             is_generating: false,
             should_quit: false,
+            dirty: true,
             client: TuiClient::new(),
             event_tx,
             event_rx,
+            crossterm_rx,
         }
     }
 
@@ -123,31 +147,20 @@ impl TuiApp {
         let mut interval = tokio::time::interval(Duration::from_millis(80));
 
         while !self.should_quit {
-            terminal.draw(|frame| self.draw(frame))?;
+            // 只有状态发生变化（dirty）时才执行重绘，避免无意义的 CPU 消耗。
+            if self.dirty {
+                terminal.draw(|frame| self.draw(frame))?;
+                self.dirty = false;
+            }
 
             tokio::select! {
                 _ = interval.tick() => self.handle_app_event(AppEvent::Tick).await,
                 Some(event) = self.event_rx.recv() => self.handle_app_event(event).await,
-                result = Self::read_crossterm_event() => self.handle_crossterm_result(result).await,
+                Some(result) = self.crossterm_rx.recv() => self.handle_crossterm_result(result).await,
             }
         }
 
         Ok(())
-    }
-
-    /// 在独立阻塞线程中读取终端事件，避免阻塞 tokio 异步运行时。
-    ///
-    /// 使用 `event::poll` 实现 100ms 超时：若超时则返回 Err，让外层 `tokio::select!`
-    /// 可以继续处理其他事件（如 Tick 或应用事件）。
-    async fn read_crossterm_event() -> anyhow::Result<Event> {
-        tokio::task::spawn_blocking(|| {
-            if event::poll(Duration::from_millis(100))? {
-                Ok(event::read()?)
-            } else {
-                Err(anyhow::anyhow!("timeout"))
-            }
-        })
-        .await?
     }
 
     /// 渲染一帧画面。
@@ -281,6 +294,8 @@ impl TuiApp {
     /// - 其他事件进入路由分发流程。
     async fn handle_crossterm_result(&mut self, result: anyhow::Result<Event>) {
         let Ok(event) = result else { return };
+        // 终端输入/鼠标/尺寸事件几乎总是导致 UI 状态变化，直接标记需要重绘。
+        self.dirty = true;
         match event {
             Event::Resize(w, h) => self.handle_app_event(AppEvent::Resize(w, h)).await,
             _ => self.route_event(event).await,
@@ -460,6 +475,15 @@ impl TuiApp {
     ///
     /// 处理完成后会同步各组件状态（如生成状态、面板状态）。
     async fn handle_app_event(&mut self, event: AppEvent) {
+        // Tick 仅在生成中时需要重绘（spinner 动画），其余事件默认需要重绘。
+        if matches!(event, AppEvent::Tick) {
+            if self.is_generating {
+                self.dirty = true;
+            }
+        } else {
+            self.dirty = true;
+        }
+
         match event {
             AppEvent::Tick => {
                 self.chat.on_tick();

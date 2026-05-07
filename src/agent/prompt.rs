@@ -27,7 +27,7 @@
 use crate::skills::SkillRegistry;
 use crate::utils::workspace::workspace_dir;
 
-const PROMPT_TEMPLATE: &str = r#"You are an autonomous coding assistant running in a terminal environment.
+const PROMPT_TEMPLATE: &str = r#"You are FiCode, a swift coding agent running in a terminal environment.
 
 Your mission is to help the user with software engineering tasks by reasoning step-by-step, taking action when necessary, and reporting results clearly.
 
@@ -119,7 +119,7 @@ mod tests {
             }
         ]);
         let prompt = builder.build(&schema, &SkillRegistry::new());
-        assert!(prompt.contains("You are an autonomous coding assistant"));
+        assert!(prompt.contains("You are FiCode, a swift coding agent"));
         assert!(prompt.contains("\"name\": \"bash\""));
         assert!(prompt.contains("Run shell commands"));
         assert!(prompt.contains("Rules:"));
@@ -129,7 +129,7 @@ mod tests {
     fn test_prompt_builder_empty_schema() {
         let builder = PromptBuilder::default();
         let prompt = builder.build(&serde_json::json!([]), &SkillRegistry::new());
-        assert!(prompt.contains("You are an autonomous coding assistant"));
+        assert!(prompt.contains("You are FiCode, a swift coding agent"));
         assert!(prompt.contains("[]"));
     }
 
