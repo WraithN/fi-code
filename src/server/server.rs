@@ -169,6 +169,33 @@ impl Server {
             }),
         );
 
+        // 注册 /skill 命令（TUI 端交互处理，Server 端仅注册元数据）
+        struct SkillCommandHandler;
+
+        #[async_trait::async_trait]
+        impl CommandHandler for SkillCommandHandler {
+            async fn execute(
+                &self,
+                _args: Option<String>,
+                _ctx: &CommandContext,
+            ) -> anyhow::Result<CommandOutput> {
+                Ok(CommandOutput {
+                    message: String::new(),
+                    r#type: crate::commands::registry::OutputType::Silent,
+                    metadata: None,
+                })
+            }
+        }
+
+        commands.register(
+            CommandMeta {
+                name: "skill".into(),
+                description: "List and load available skills".into(),
+                args_hint: None,
+            },
+            Box::new(SkillCommandHandler),
+        );
+
         let themes = crate::tui::theme::ThemePreset::all_presets();
 
         Self {

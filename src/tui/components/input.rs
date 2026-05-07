@@ -34,6 +34,13 @@ use crate::tui::components::Component;
 use crate::tui::event::AppEvent;
 use crate::tui::theme::Theme;
 
+/// 子菜单类型，用于区分不同命令打开的交互式菜单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmenuKind {
+    Theme,
+    Skill,
+}
+
 /// 底部输入框组件，处理用户键盘输入、光标管理、斜杠命令提示与消息提交。
 pub struct Input {
     content: String,
@@ -45,8 +52,8 @@ pub struct Input {
     last_drawn_area: Option<Rect>,
     dropdown_area: Option<Rect>,
     commands_loaded: bool,
-    // 子菜单（主题选择）
-    submenu_mode: bool,
+    // 子菜单（主题选择 / skill 选择）
+    submenu_kind: Option<SubmenuKind>,
     submenu_items: Vec<(String, String)>, // (name, description)
     submenu_selected: usize,
     submenu_loaded: bool,
@@ -64,7 +71,7 @@ impl Input {
             last_drawn_area: None,
             dropdown_area: None,
             commands_loaded: false,
-            submenu_mode: false,
+            submenu_kind: None,
             submenu_items: Vec::new(),
             submenu_selected: 0,
             submenu_loaded: false,
@@ -88,8 +95,8 @@ impl Input {
         self.dropdown_visible
     }
 
-    pub fn enter_submenu_mode(&mut self) {
-        self.submenu_mode = true;
+    pub fn enter_submenu_mode(&mut self, kind: SubmenuKind) {
+        self.submenu_kind = Some(kind);
         self.submenu_selected = 0;
         self.dropdown_visible = true;
     }
@@ -100,12 +107,12 @@ impl Input {
     }
 
     pub fn close_submenu(&mut self) {
-        self.submenu_mode = false;
+        self.submenu_kind = None;
         self.dropdown_visible = false;
     }
 
     pub fn is_submenu_open(&self) -> bool {
-        self.submenu_mode && self.dropdown_visible
+        self.submenu_kind.is_some() && self.dropdown_visible
     }
 
     pub fn set_last_drawn_area(&mut self, area: Rect) {
@@ -117,7 +124,7 @@ impl Input {
             self.dropdown_area = None;
             return;
         }
-        let items_len = if self.submenu_mode {
+        let items_len = if self.submenu_kind.is_some() {
             self.submenu_items.len() as u16
         } else {
             self.dropdown_items.len() as u16
@@ -271,34 +278,55 @@ impl Component for Input {
                 }
 
                 if self.dropdown_visible {
-                    if self.submenu_mode {
+                    if let Some(kind) = self.submenu_kind {
                         match key.code {
                             KeyCode::Up => {
                                 if self.submenu_selected > 0 {
                                     self.submenu_selected -= 1;
                                 }
-                                return Some(AppEvent::PreviewTheme(self.submenu_selected));
+                                return match kind {
+                                    SubmenuKind::Theme => Some(AppEvent::PreviewTheme(self.submenu_selected)),
+                                    SubmenuKind::Skill => None,
+                                };
                             }
                             KeyCode::Down => {
                                 if self.submenu_selected < self.submenu_items.len().saturating_sub(1) {
                                     self.submenu_selected += 1;
                                 }
-                                return Some(AppEvent::PreviewTheme(self.submenu_selected));
+                                return match kind {
+                                    SubmenuKind::Theme => Some(AppEvent::PreviewTheme(self.submenu_selected)),
+                                    SubmenuKind::Skill => None,
+                                };
                             }
                             KeyCode::Enter => {
                                 if self.submenu_selected < self.submenu_items.len() {
                                     let idx = self.submenu_selected;
-                                    self.close_submenu();
-                                    return Some(AppEvent::SelectTheme(idx));
+                                    match kind {
+                                        SubmenuKind::Theme => {
+                                            self.close_submenu();
+                                            return Some(AppEvent::SelectTheme(idx));
+                                        }
+                                        SubmenuKind::Skill => {
+                                            let name = self.submenu_items[idx].0.clone();
+                                            self.close_submenu();
+                                            return Some(AppEvent::SelectSkill(name));
+                                        }
+                                    }
                                 }
                             }
                             KeyCode::Esc => {
                                 self.close_submenu();
-                                return Some(AppEvent::CancelThemePreview);
+                                return match kind {
+                                    SubmenuKind::Theme => Some(AppEvent::CancelThemePreview),
+                                    SubmenuKind::Skill => None,
+                                };
                             }
                             _ => {
                                 self.close_submenu();
-                                return Some(AppEvent::CancelThemePreview);
+                                return match kind {
+                                    SubmenuKind::Theme => Some(AppEvent::CancelThemePreview),
+                                    SubmenuKind::Skill => None,
+                                };
                             }
                         }
                     } else {
@@ -395,19 +423,25 @@ impl Component for Input {
                 if !self.dropdown_visible {
                     return None;
                 }
-                if self.submenu_mode {
+                if let Some(kind) = self.submenu_kind {
                     match mouse.kind {
                         crossterm::event::MouseEventKind::ScrollUp => {
                             if self.submenu_selected > 0 {
                                 self.submenu_selected -= 1;
                             }
-                            Some(AppEvent::PreviewTheme(self.submenu_selected))
+                            return match kind {
+                                SubmenuKind::Theme => Some(AppEvent::PreviewTheme(self.submenu_selected)),
+                                SubmenuKind::Skill => None,
+                            };
                         }
                         crossterm::event::MouseEventKind::ScrollDown => {
                             if self.submenu_selected < self.submenu_items.len().saturating_sub(1) {
                                 self.submenu_selected += 1;
                             }
-                            Some(AppEvent::PreviewTheme(self.submenu_selected))
+                            return match kind {
+                                SubmenuKind::Theme => Some(AppEvent::PreviewTheme(self.submenu_selected)),
+                                SubmenuKind::Skill => None,
+                            };
                         }
                         crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
                             if let Some(area) = self.dropdown_area {
@@ -421,12 +455,24 @@ impl Component for Input {
                                     if index < self.submenu_items.len() {
                                         self.submenu_selected = index;
                                         let idx = self.submenu_selected;
-                                        self.close_submenu();
-                                        return Some(AppEvent::SelectTheme(idx));
+                                        match kind {
+                                            SubmenuKind::Theme => {
+                                                self.close_submenu();
+                                                return Some(AppEvent::SelectTheme(idx));
+                                            }
+                                            SubmenuKind::Skill => {
+                                                let name = self.submenu_items[idx].0.clone();
+                                                self.close_submenu();
+                                                return Some(AppEvent::SelectSkill(name));
+                                            }
+                                        }
                                     }
                                 } else {
                                     self.close_submenu();
-                                    return Some(AppEvent::CancelThemePreview);
+                                    return match kind {
+                                        SubmenuKind::Theme => Some(AppEvent::CancelThemePreview),
+                                        SubmenuKind::Skill => None,
+                                    };
                                 }
                             }
                             None
@@ -482,7 +528,7 @@ impl Component for Input {
 impl Input {
     /// 渲染斜杠命令下拉菜单：显示在输入框上方，包含命令名与描述。
     fn draw_dropdown(&self, frame: &mut Frame, input_area: Rect, theme: &Theme) {
-        if self.submenu_mode {
+        if self.submenu_kind.is_some() {
             let items: Vec<Line> = self
                 .submenu_items
                 .iter()
@@ -618,5 +664,30 @@ mod tests {
         input.content.clear();
         input.check_slash_commands();
         assert!(!input.dropdown_visible);
+    }
+
+    #[test]
+    fn test_submenu_kind_theme() {
+        let mut input = Input::new();
+        input.enter_submenu_mode(SubmenuKind::Theme);
+        assert!(input.is_submenu_open());
+        assert_eq!(input.submenu_kind, Some(SubmenuKind::Theme));
+    }
+
+    #[test]
+    fn test_submenu_kind_skill() {
+        let mut input = Input::new();
+        input.enter_submenu_mode(SubmenuKind::Skill);
+        assert!(input.is_submenu_open());
+        assert_eq!(input.submenu_kind, Some(SubmenuKind::Skill));
+    }
+
+    #[test]
+    fn test_close_submenu_clears_kind() {
+        let mut input = Input::new();
+        input.enter_submenu_mode(SubmenuKind::Skill);
+        input.close_submenu();
+        assert!(!input.is_submenu_open());
+        assert_eq!(input.submenu_kind, None);
     }
 }

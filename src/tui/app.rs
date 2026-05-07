@@ -620,6 +620,23 @@ impl TuiApp {
                 }
                 self.input.close_submenu();
             }
+            AppEvent::SelectSkill(ref name) => {
+                self.input.close_submenu();
+                match crate::skills::load_skill_content(name) {
+                    Ok(content) => {
+                        self.chat.add_system_message(&format!(
+                            "Skill '{}' loaded.\n\n{}",
+                            name, content
+                        ));
+                    }
+                    Err(e) => {
+                        self.chat.add_system_message(&format!(
+                            "Failed to load skill '{}': {}",
+                            name, e
+                        ));
+                    }
+                }
+            }
             AppEvent::ToggleLogWindow => {
                 let visible = !self.log_window.is_visible();
                 self.log_window.set_visible(visible);
@@ -790,8 +807,29 @@ impl TuiApp {
     /// 处理斜杠命令执行：有参数时等待补全，无参数时直接执行。
     /// /theme 命令特殊处理：直接进入主题子菜单。
     fn handle_execute_slash_command(&mut self, name: &str, _args_hint: &Option<String>) {
+        if name == "skill" {
+            let registry = crate::skills::get_registry();
+            if registry.entries.is_empty() {
+                let tx = self.event_tx.clone();
+                tokio::spawn(async move {
+                    let _ = tx.send(AppEvent::ShowSystemMessage(
+                        "No skills available.".into(),
+                    )).await;
+                });
+                return;
+            }
+            self.input.enter_submenu_mode(crate::tui::components::input::SubmenuKind::Skill);
+            let items: Vec<(String, String)> = registry
+                .entries
+                .iter()
+                .map(|e| (e.metadata.name.clone(), e.metadata.description.clone()))
+                .collect();
+            self.input.set_submenu_items(items);
+            return;
+        }
+
         if name == "theme" {
-            self.input.enter_submenu_mode();
+            self.input.enter_submenu_mode(crate::tui::components::input::SubmenuKind::Theme);
             let items: Vec<(String, String)> = self
                 .theme_presets
                 .iter()
