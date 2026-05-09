@@ -1,4 +1,3 @@
-use tauri::Manager;
 use std::sync::Mutex;
 
 pub mod sidecar;
@@ -8,7 +7,7 @@ use sidecar::SidecarManager;
 async fn start_sidecar(state: tauri::State<'_, Mutex<SidecarManager>>, app: tauri::AppHandle) -> Result<String, String> {
     let mut manager = state.lock().map_err(|e| e.to_string())?;
     manager.start(&app)?;
-    manager.wait_ready(10).await?;
+    manager.wait_ready(10)?;
     Ok(format!("http://127.0.0.1:{}", manager.port))
 }
 

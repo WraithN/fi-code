@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.ficode.app",
   "build": {
-    "beforeDevCommand": "cd ../ && npm run dev",
-    "beforeBuildCommand": "cd ../ && npm run build",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "dist"
   },
   "app": {
     "windows": [
@@ -35,8 +35,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "fi-code"
-    ]
+    "externalBin": []
   }
 }

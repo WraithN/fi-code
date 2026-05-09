@@ -1,7 +1,8 @@
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
+use std::net::TcpStream;
 use tauri::AppHandle;
-use tokio::time::sleep;
+use std::thread;
 
 pub struct SidecarManager {
     process: Option<Child>,
@@ -39,26 +40,18 @@ impl SidecarManager {
         Err("Sidecar binary not found. Please build fi-code first: cargo build".to_string())
     }
 
-    pub async fn wait_ready(&self, timeout_secs: u64) -> Result<(), String> {
-        let client = reqwest::Client::new();
+    pub fn wait_ready(&self, timeout_secs: u64) -> Result<(), String> {
+        let addr = format!("127.0.0.1:{}", self.port);
         let start = std::time::Instant::now();
-        let timeout = Duration::from_secs(timeout_secs);
 
-        while start.elapsed() < timeout {
-            let url = format!("http://127.0.0.1:{}/rpc", self.port);
-            let body = serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "get_status",
-                "id": 1
-            });
-
-            if let Ok(resp) = client.post(&url).json(&body).timeout(Duration::from_secs(2)).send().await {
-                if resp.status().is_success() {
-                    return Ok(());
-                }
+        while start.elapsed().as_secs() < timeout_secs {
+            if TcpStream::connect_timeout(
+                &addr.parse().unwrap(),
+                Duration::from_secs(1),
+            ).is_ok() {
+                return Ok(());
             }
-
-            sleep(Duration::from_millis(500)).await;
+            thread::sleep(Duration::from_millis(500));
         }
 
         Err(format!("Sidecar not ready after {}s", timeout_secs))
