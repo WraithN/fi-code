@@ -24,6 +24,7 @@ use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use crate::config::{Config, ProviderConfig};
 
@@ -52,7 +53,11 @@ impl Default for Provider {
     fn default() -> Self {
         Self {
             model: None,
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(180))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 }
@@ -60,7 +65,12 @@ impl Default for Provider {
 impl Provider {
     pub fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
         // 复用同一个 reqwest::Client，避免每次请求都重新建立 TCP/TLS 连接
-        let http_client = reqwest::Client::new();
+        // 配置连接和请求超时，避免网络卡顿导致无限等待
+        let http_client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(180))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
 
         // 1. 优先尝试环境变量
         if let Ok(model) = Self::from_env() {
