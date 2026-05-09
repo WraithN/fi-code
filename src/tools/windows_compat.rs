@@ -145,3 +145,21 @@ pub fn get_bash_path() -> Option<String> {
         WindowsCompatMode::None => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_mode() {
+        // 默认应该是 Native 或 None（根据平台）
+        let mode = WindowsCompatMode::default();
+        assert!(matches!(mode, WindowsCompatMode::Native | WindowsCompatMode::None));
+    }
+
+    #[test]
+    fn test_get_compat_mode() {
+        let mode = get_compat_mode();
+        assert!(matches!(mode, WindowsCompatMode::Native | WindowsCompatMode::None));
+    }
+}
