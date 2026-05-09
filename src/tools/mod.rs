@@ -56,7 +56,7 @@ static EVENT_TX: RwLock<Option<mpsc::Sender<AppEvent>>> = RwLock::new(None);
 
 // 问题答案通道
 type QuestionResponseSender = tokio::sync::oneshot::Sender<QuestionAnswer>;
-static QUESTION_CHANNEL: LazyLock<Mutex<Option<QuestionResponseSender>>> = 
+pub static QUESTION_CHANNEL: LazyLock<Mutex<Option<QuestionResponseSender>>> = 
     LazyLock::new(|| Mutex::new(None));
 
 // 设置全局事件发送器

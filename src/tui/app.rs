@@ -36,9 +36,10 @@ use crate::tui::components::{
     log_window::LogWindow,
     right_drawer::RightDrawer,
     status_bar::StatusBar,
+    question_dialog::{QuestionDialog, QuestionDialogAction},
     Component,
 };
-use crate::tui::event::{AppEvent, FocusArea, ModelItem, ProviderItem};
+use crate::tui::event::{AppEvent, FocusArea, ModelItem, ProviderItem, QuestionAnswer};
 use crate::tui::layout::{LayoutManager, PanelState};
 use crate::tui::theme::Theme;
 
@@ -134,6 +135,7 @@ pub struct TuiApp {
     exit_confirm_pending: bool,    // Ctrl+C 是否已按过一次，等待第二次确认退出
     dirty: bool,                   // 是否需要重绘
     api_key_dialog: Option<ApiKeyDialog>, // API Key 输入模态框
+    question_dialog: Option<QuestionDialog>, // 问题询问模态框
 
     // === 后端通信与事件通道 ===
     client: TuiClient,                                      // HTTP 客户端，对接本地 4040 端口服务
@@ -197,6 +199,7 @@ impl TuiApp {
             exit_confirm_pending: false,
             dirty: true,
             api_key_dialog: None,
+            question_dialog: None,
             client: TuiClient::new(),
             event_tx,
             event_rx,
@@ -375,6 +378,24 @@ impl TuiApp {
             let cursor_x = input_area.x + 1 + dialog.cursor as u16;
             let cursor_y = input_area.y + 1;
             frame.set_cursor_position((cursor_x, cursor_y));
+        }
+
+        // 渲染问题询问模态框
+        if let Some(ref dialog) = self.question_dialog {
+            let area = frame.area();
+            let dialog_w = 60u16.min(area.width.saturating_sub(4));
+            let num_options = if dialog.allow_custom {
+                dialog.options.len() as u16 + 1
+            } else {
+                dialog.options.len() as u16
+            };
+            let dialog_h = (6 + num_options * 2).min(area.height.saturating_sub(4));
+            let x = area.x + (area.width.saturating_sub(dialog_w)) / 2;
+            let y = area.y + (area.height.saturating_sub(dialog_h)) / 2;
+            let dialog_area = ratatui::layout::Rect::new(x, y, dialog_w, dialog_h);
+
+            frame.render_widget(ratatui::widgets::Clear, dialog_area);
+            dialog.draw(frame, dialog_area);
         }
     }
 
@@ -608,6 +629,21 @@ impl TuiApp {
                     return;
                 }
 
+                // 问题询问模态框处理键盘事件
+                if let Some(ref mut dialog) = self.question_dialog {
+                    if let Some(action) = dialog.handle_key(key.code) {
+                        match action {
+                            QuestionDialogAction::Submit(answer) => {
+                                let _ = self.event_tx.send(AppEvent::QuestionAnswered { answer }).await;
+                            }
+                            QuestionDialogAction::Cancel => {
+                                self.question_dialog = None;
+                            }
+                        }
+                    }
+                    return;
+                }
+
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     self.handle_ctrl_key(&key).await;
                     return;
@@ -683,6 +719,25 @@ impl TuiApp {
         }
 
         match event {
+            AppEvent::ShowQuestionDialog { ref question, ref options, ref recommended, ref allow_custom } => {
+                self.question_dialog = Some(QuestionDialog::new(question.clone(), options.clone(), recommended.clone(), *allow_custom));
+            }
+            AppEvent::QuestionAnswered { ref answer } => {
+                // 发送答案到工具通道
+                if let Some(tx) = crate::tools::QUESTION_CHANNEL.lock().unwrap().take() {
+                    let _ = tx.send(answer.clone());
+                }
+
+                // 添加用户消息到聊天
+                let answer_text = match answer {
+                    QuestionAnswer::Option { label, .. } => label.clone(),
+                    QuestionAnswer::Custom(value) => value.clone(),
+                };
+                self.chat.add_user_message(&answer_text);
+
+                // 关闭对话框
+                self.question_dialog = None;
+            }
             AppEvent::Tick => {
                 self.chat.on_tick();
                 self.header.on_tick();
