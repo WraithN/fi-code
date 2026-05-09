@@ -678,6 +678,7 @@ mod tests {
             "registry should contain web_fetch tool"
         );
         assert!(list.contains("grep"), "registry should contain grep tool");
+        assert!(list.contains("glob"), "registry should contain glob tool");
     }
 
     /// 测试 use_skill 工具已注册
