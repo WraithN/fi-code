@@ -1,0 +1,30 @@
+<h2>AskForQuestion 系统架构（方案1）</h2>
+<p class="subtitle">数据流向图</p>
+
+<div class="section" style="margin-top:20px">
+  <h3>数据流向</h3>
+  <div style="font-family:monospace;line-height:1.8;color:#9ca3af;background:#111827;padding:16px;border-radius:8px">
+    <div>1. Agent 调用 ask_for_question 工具</div>
+    <div>2. tool_call 检测到工具名，发送 AppEvent::ShowQuestionDialog</div>
+    <div>3. TUI/桌面应用接收事件，显示选择框</div>
+    <div>4. 用户选择/输入，发送 AppEvent::QuestionAnswered</div>
+    <div>5. Agent 接收答案，既返回给工具调用，又显示在聊天</div>
+  </div>
+</div>
+
+<div class="pros-cons" style="margin-top:24px">
+  <div class="pros">
+    <h4>优点</h4>
+    <ul>
+      <li>最小化现有代码改动</li>
+      <li>复用现有 AppEvent 系统</li>
+      <li>易于调试和测试</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>缺点</h4>
+    <ul>
+      <li>需要在 Agent 循环中特殊处理</li>
+    </ul>
+  </div>
+</div>

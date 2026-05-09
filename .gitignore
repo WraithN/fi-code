@@ -24,7 +24,7 @@ yarn-error.log*
 
 # Logs
 *.log
-
+*.lock
 # Temporary files
 /tmp
 *.tmp
