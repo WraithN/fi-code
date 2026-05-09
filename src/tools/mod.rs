@@ -223,6 +223,34 @@ impl ToolHandler for GrepHandler {
 }
 
 // =============================================================================
+// GlobHandler：使用 glob 模式搜索文件
+// =============================================================================
+
+#[derive(Debug)]
+struct GlobHandler;
+
+impl ToolHandler for GlobHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let (pattern, dir) = match &params[..] {
+            [ToolParameter::Json(v)] => {
+                let pattern = get_json_param(v, "pattern");
+                let dir = v.get("dir").and_then(|x| x.as_str()).map(|s| s.to_string());
+                (pattern, dir)
+            }
+            [ToolParameter::String(p)] => (p.clone(), None),
+            [ToolParameter::String(p), ToolParameter::String(d)] => (p.clone(), Some(d.clone())),
+            _ => ("".to_string(), None),
+        };
+
+        if pattern.is_empty() {
+            return Err("Missing pattern parameter".to_string());
+        }
+
+        BasicTool::run_glob(&pattern, dir.as_deref())
+    }
+}
+
+// =============================================================================
 // UseSkillHandler：按需加载 Skill 内容
 // =============================================================================
 // 允许 Agent 在运行时通过名称或 ID 加载 Skill 的完整说明内容。
@@ -404,6 +432,14 @@ static REGISTRY: LazyLock<ToolsRegistry> = LazyLock::new(|| {
             Box::new(GrepHandler),
         )
         .expect("register grep tool failed");
+    registry
+        .register(
+            "glob",
+            "使用 glob 模式搜索文件，支持 *、**、?、[] 等模式",
+            r#"{"type":"object","properties":{"pattern":{"type":"string","description":"Glob 模式，如 **/*.rs、src/**/*、*.md"},"dir":{"type":"string","description":"可选，搜索根目录，默认为当前工作目录"}},"required":["pattern"]}"#,
+            Box::new(GlobHandler),
+        )
+        .expect("register glob tool failed");
     registry
         .register(
             "use_skill",
@@ -744,6 +780,17 @@ mod tests {
             "grep output should contain 'run_read', got: {}",
             result
         );
+    }
+
+    /// 测试通过 tool_call 调用 glob 工具
+    #[tokio::test]
+    async fn test_tool_call_glob() {
+        let mut input = HashMap::new();
+        input.insert("pattern".to_string(), serde_json::json!("**/Cargo.toml"));
+        let result = tool_call("glob", &input).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.contains("Cargo.toml"));
     }
 
     /// 测试 web_fetch 工具参数缺失时返回错误
