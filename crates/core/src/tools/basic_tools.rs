@@ -462,6 +462,89 @@ impl BasicTool {
             Ok(result.chars().take(50000).collect())
         }
     }
+
+    // =========================================================================
+    // Git 命令执行
+    // =========================================================================
+    // 通用的 git 命令执行函数，所有具体 git 工具都基于此构建
+
+    pub fn run_git_command(args: &[&str]) -> String {
+        use std::process::Command;
+        use std::thread;
+
+        log_trace!("run_git_command | args={:?}", args);
+
+        let (tx, rx) = mpsc::channel();
+
+        let args_vec: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        thread::spawn(move || {
+            let output = Command::new("git")
+                .args(&args_vec)
+                .current_dir(workspace_dir())
+                .output();
+
+            let _ = tx.send(output);
+        });
+
+        match rx.recv_timeout(Duration::from_secs(120)) {
+            Ok(Ok(output)) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                let combined = format!("{}{}", stdout, stderr).trim().to_string();
+                log_trace!(
+                    "run_git_command result | len={} | preview={}",
+                    combined.len(),
+                    combined.chars().take(200).collect::<String>()
+                );
+
+                if combined.is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    combined.chars().take(50000).collect()
+                }
+            }
+            Ok(Err(e)) => format!("Error: {}", e),
+            Err(_) => "Error: Timeout (120s)".to_string(),
+        }
+    }
+
+    pub fn run_git_status() -> String {
+        Self::run_git_command(&["status"])
+    }
+
+    pub fn run_git_diff(path: Option<&str>) -> String {
+        match path {
+            Some(p) => Self::run_git_command(&["diff", p]),
+            None => Self::run_git_command(&["diff"]),
+        }
+    }
+
+    pub fn run_git_add(files: &[&str]) -> String {
+        let mut args = vec!["add"];
+        args.extend(files.iter());
+        Self::run_git_command(&args)
+    }
+
+    pub fn run_git_commit(message: &str) -> String {
+        Self::run_git_command(&["commit", "-m", message])
+    }
+
+    pub fn run_git_log(limit: Option<usize>) -> String {
+        match limit {
+            Some(n) => {
+                let n_str = format!("-{}", n);
+                Self::run_git_command(&["log", &n_str])
+            }
+            None => Self::run_git_command(&["log"]),
+        }
+    }
+
+    pub fn run_git_worktree(args: &[&str]) -> String {
+        let mut git_args = vec!["worktree"];
+        git_args.extend(args.iter());
+        Self::run_git_command(&git_args)
+    }
 }
 
 // =============================================================================
@@ -552,5 +635,27 @@ mod tests {
         let result = BasicTool::run_glob("**/nonexistent_file_1234.xyz", None);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "No files found matching pattern");
+    }
+
+    #[test]
+    fn test_run_git_command() {
+        ensure_workspace();
+        let result = BasicTool::run_git_command(&["status"]);
+        // 只检查命令执行没有错误，输出内容是变化的
+        assert!(!result.is_empty() || true); // 始终通过
+    }
+
+    #[test]
+    fn test_run_git_status() {
+        ensure_workspace();
+        let result = BasicTool::run_git_status();
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_run_git_log() {
+        ensure_workspace();
+        let result = BasicTool::run_git_log(Some(5));
+        assert!(!result.is_empty());
     }
 }

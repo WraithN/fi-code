@@ -374,6 +374,160 @@ impl ToolHandler for AskForQuestionHandler {
 }
 
 // =============================================================================
+// GitHandler：通用 git 命令执行
+// =============================================================================
+
+#[derive(Debug)]
+struct GitHandler;
+
+impl ToolHandler for GitHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let (command, args_opt) = match &params[..] {
+            [ToolParameter::Json(v)] => {
+                let cmd = get_json_param(v, "command");
+                let args = v.get("args").and_then(|a| a.as_array());
+                (cmd, args)
+            }
+            [ToolParameter::String(cmd)] => (cmd.clone(), None),
+            _ => ("".to_string(), None),
+        };
+
+        if command.is_empty() {
+            return Err("Missing command parameter".to_string());
+        }
+
+        let mut args_vec = vec![command.as_str()];
+        if let Some(args) = args_opt {
+            for arg in args {
+                if let Some(s) = arg.as_str() {
+                    args_vec.push(s);
+                }
+            }
+        }
+
+        Ok(BasicTool::run_git_command(&args_vec))
+    }
+}
+
+#[derive(Debug)]
+struct GitStatusHandler;
+
+impl ToolHandler for GitStatusHandler {
+    fn call(&self, _name: &str, _params: ToolParams) -> Result<String, String> {
+        Ok(BasicTool::run_git_status())
+    }
+}
+
+#[derive(Debug)]
+struct GitDiffHandler;
+
+impl ToolHandler for GitDiffHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let path = match &params[..] {
+            [ToolParameter::Json(v)] => v.get("path").and_then(|p| p.as_str()),
+            [ToolParameter::String(p)] => Some(p.as_str()),
+            _ => None,
+        };
+
+        Ok(BasicTool::run_git_diff(path))
+    }
+}
+
+#[derive(Debug)]
+struct GitAddHandler;
+
+impl ToolHandler for GitAddHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let files: Vec<String> = match &params[..] {
+            [ToolParameter::Json(v)] => {
+                if let Some(arr) = v.get("files").and_then(|a| a.as_array()) {
+                    arr.iter()
+                        .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                        .collect()
+                } else {
+                    vec![]
+                }
+            }
+            [ToolParameter::String(f)] => vec![f.clone()],
+            _ => vec![],
+        };
+
+        if files.is_empty() {
+            return Err("Missing files parameter".to_string());
+        }
+
+        let files_str: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        Ok(BasicTool::run_git_add(&files_str))
+    }
+}
+
+#[derive(Debug)]
+struct GitCommitHandler;
+
+impl ToolHandler for GitCommitHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let message = match &params[..] {
+            [ToolParameter::Json(v)] => get_json_param(v, "message"),
+            [ToolParameter::String(m)] => m.clone(),
+            _ => "".to_string(),
+        };
+
+        if message.is_empty() {
+            return Err("Missing message parameter".to_string());
+        }
+
+        Ok(BasicTool::run_git_commit(&message))
+    }
+}
+
+#[derive(Debug)]
+struct GitLogHandler;
+
+impl ToolHandler for GitLogHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let limit = match &params[..] {
+            [ToolParameter::Json(v)] => v.get("limit").and_then(|l| l.as_u64()).map(|l| l as usize),
+            [ToolParameter::Integer(l)] => Some(*l as usize),
+            _ => None,
+        };
+
+        Ok(BasicTool::run_git_log(limit))
+    }
+}
+
+#[derive(Debug)]
+struct GitWorktreeHandler;
+
+impl ToolHandler for GitWorktreeHandler {
+    fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
+        let (command, args_opt) = match &params[..] {
+            [ToolParameter::Json(v)] => {
+                let cmd = get_json_param(v, "command");
+                let args = v.get("args").and_then(|a| a.as_array());
+                (cmd, args)
+            }
+            [ToolParameter::String(cmd)] => (cmd.clone(), None),
+            _ => ("".to_string(), None),
+        };
+
+        if command.is_empty() {
+            return Err("Missing command parameter".to_string());
+        }
+
+        let mut args_vec = vec![command.as_str()];
+        if let Some(args) = args_opt {
+            for arg in args {
+                if let Some(s) = arg.as_str() {
+                    args_vec.push(s);
+                }
+            }
+        }
+
+        Ok(BasicTool::run_git_worktree(&args_vec))
+    }
+}
+
+// =============================================================================
 // MCP Manager 全局状态
 // =============================================================================
 // `McpManager` 在程序启动后由 `main.rs` 异步初始化并设置到这里。
@@ -505,6 +659,62 @@ static REGISTRY: LazyLock<ToolsRegistry> = LazyLock::new(|| {
             Box::new(AskForQuestionHandler),
         )
         .expect("register ask_for_question failed");
+    registry
+        .register(
+            "git",
+            "Generic git tool, execute any git command",
+            r#"{"type":"object","properties":{"command":{"type":"string","description":"Git command to execute"},"args":{"type":"array","items":{"type":"string"},"description":"Optional arguments to the git command"}},"required":["command"]}"#,
+            Box::new(GitHandler),
+        )
+        .expect("register git tool failed");
+    registry
+        .register(
+            "git_status",
+            "Get git status",
+            r#"{"type":"object","properties":{}}"#,
+            Box::new(GitStatusHandler),
+        )
+        .expect("register git_status tool failed");
+    registry
+        .register(
+            "git_diff",
+            "Show git diff",
+            r#"{"type":"object","properties":{"path":{"type":"string","description":"Optional path to show diff for"}},"required":[]}"#,
+            Box::new(GitDiffHandler),
+        )
+        .expect("register git_diff tool failed");
+    registry
+        .register(
+            "git_add",
+            "Add files to git staging area",
+            r#"{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"},"description":"Files to add"}},"required":["files"]}"#,
+            Box::new(GitAddHandler),
+        )
+        .expect("register git_add tool failed");
+    registry
+        .register(
+            "git_commit",
+            "Commit staged changes",
+            r#"{"type":"object","properties":{"message":{"type":"string","description":"Commit message"}},"required":["message"]}"#,
+            Box::new(GitCommitHandler),
+        )
+        .expect("register git_commit tool failed");
+    registry
+        .register(
+            "git_log",
+            "Show git commit history",
+            r#"{"type":"object","properties":{"limit":{"type":"integer","description":"Limit number of commits to show"}},"required":[]}"#,
+            Box::new(GitLogHandler),
+        )
+        .expect("register git_log tool failed");
+    registry
+        .register(
+            "git_worktree",
+            "Manage git worktrees",
+            r#"{"type":"object","properties":{"command":{"type":"string","description":"Worktree command (add, list, remove, etc.)"},"args":{"type":"array","items":{"type":"string"},"description":"Optional arguments to the worktree command"}},"required":["command"]}"#,
+            Box::new(GitWorktreeHandler),
+        )
+        .expect("register git_worktree tool failed");
     registry
 });
 
@@ -823,6 +1033,31 @@ mod tests {
         );
         assert!(list.contains("grep"), "registry should contain grep tool");
         assert!(list.contains("glob"), "registry should contain glob tool");
+        assert!(list.contains("git"), "registry should contain git tool");
+        assert!(
+            list.contains("git_status"),
+            "registry should contain git_status tool"
+        );
+        assert!(
+            list.contains("git_diff"),
+            "registry should contain git_diff tool"
+        );
+        assert!(
+            list.contains("git_add"),
+            "registry should contain git_add tool"
+        );
+        assert!(
+            list.contains("git_commit"),
+            "registry should contain git_commit tool"
+        );
+        assert!(
+            list.contains("git_log"),
+            "registry should contain git_log tool"
+        );
+        assert!(
+            list.contains("git_worktree"),
+            "registry should contain git_worktree tool"
+        );
     }
 
     /// 测试 use_skill 工具已注册
@@ -1049,6 +1284,35 @@ mod tests {
             "registry should contain handle_task_plan tool, got: {}",
             list
         );
+    }
+
+    /// 测试通过 tool_call 调用 git_status 工具
+    #[tokio::test]
+    async fn test_tool_call_git_status() {
+        let result = tool_call("git_status", &HashMap::new()).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+    }
+
+    /// 测试通过 tool_call 调用 git_log 工具
+    #[tokio::test]
+    async fn test_tool_call_git_log() {
+        let mut input = HashMap::new();
+        input.insert("limit".to_string(), serde_json::json!(3));
+        let result = tool_call("git_log", &input).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+    }
+
+    /// 测试通过 tool_call 调用通用 git 工具
+    #[tokio::test]
+    async fn test_tool_call_git() {
+        let mut input = HashMap::new();
+        input.insert("command".to_string(), serde_json::json!("status"));
+        let result = tool_call("git", &input).await;
+        assert!(result.is_ok());
     }
 
     /// MCP 端到端验证：tool_schema 合并 + tool_call 路由
