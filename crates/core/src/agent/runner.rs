@@ -204,13 +204,7 @@ impl AgentRunner {
         // 客户端直出优化：如果所有工具都成功，且 Turn 1 已有前置文本说明，
         // 则跳过 Turn 2，直接格式化输出工具结果。
         let all_success = tool_results.iter().all(|p| {
-            matches!(
-                p,
-                Part::ToolResult {
-                    is_error: false,
-                    ..
-                }
-            )
+            matches!(p, Part::ToolResult { .. })
         });
         let has_preamble = content_blocks
             .iter()
@@ -296,29 +290,34 @@ impl AgentRunner {
 fn format_tool_results(content_blocks: &[Part], tool_results: &[Part]) -> String {
     let mut lines = Vec::new();
     for result in tool_results {
-        if let Part::ToolResult {
-            tool_call_id,
-            content,
-            is_error,
-        } = result
-        {
-            let emoji = if *is_error { "❌" } else { "✅" };
-            let tool_name = content_blocks.iter().find_map(|p| {
-                if let Part::ToolUse { id, name, .. } = p {
-                    if id == tool_call_id {
-                        Some(name.as_str())
-                    } else {
-                        None
-                    }
+        let (tool_call_id, content, is_error) = match result {
+            Part::ToolResult {
+                tool_call_id,
+                content,
+            } => (tool_call_id, content, false),
+            Part::ToolError {
+                tool_call_id,
+                content,
+                ..
+            } => (tool_call_id, content, true),
+            _ => continue,
+        };
+        let emoji = if is_error { "❌" } else { "✅" };
+        let tool_name = content_blocks.iter().find_map(|p| {
+            if let Part::ToolUse { id, name, .. } = p {
+                if id == tool_call_id {
+                    Some(name.as_str())
                 } else {
                     None
                 }
-            });
-            if let Some(name) = tool_name {
-                lines.push(format!("{} {} | {}", emoji, name, content));
             } else {
-                lines.push(format!("{} {}", emoji, content));
+                None
             }
+        });
+        if let Some(name) = tool_name {
+            lines.push(format!("{} {} | {}", emoji, name, content));
+        } else {
+            lines.push(format!("{} {}", emoji, content));
         }
     }
     lines.join("\n")

@@ -427,6 +427,7 @@ impl SessionManager {
                             thinking.chars().take(100).collect::<String>()
                         );
                     }
+                    _ => {}
                 }
             }
         }

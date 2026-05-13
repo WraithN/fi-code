@@ -50,13 +50,25 @@ pub enum Role {
 }
 
 // =============================================================================
+// Token 使用量统计
+// =============================================================================
+
+/// Token 使用量统计，用于 WaveMarker 等场景。
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+}
+
+// =============================================================================
 // 内容块枚举（Part）：消息的原子组成单元
 // =============================================================================
 
 /// 内容块枚举：一条 `Message` 由多个 `Part` 按顺序组成。
 ///
 /// 这种设计与 Anthropic / OpenAI 的最新内容块 API 对齐，
-/// 支持纯文本、多模态图片、工具调用、工具结果以及推理过程。
+/// 支持纯文本、多模态图片、工具调用、工具结果、推理过程、
+/// 波浪标记以及用量统计。
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
@@ -75,13 +87,33 @@ pub enum Part {
     ToolResult {
         tool_call_id: String,
         content: String,
-        is_error: bool,
+    },
+    /// 工具执行错误（由 User 角色消息携带，回传给模型）
+    ToolError {
+        tool_call_id: String,
+        content: String,
+        error_message: String,
     },
     /// 推理/思考过程（如 Claude Extended Thinking）
     Reasoning {
         thinking: String,
         /// 可选的签名，用于验证推理内容未被篡改
         signature: Option<String>,
+    },
+    /// 波浪标记，用于标识 Agent 执行步骤
+    WaveMarker {
+        step: u32,
+        total: Option<u32>,
+        git_snapshot: Option<String>,
+        timestamp: u64,
+        delta_tokens: TokenUsage,
+    },
+    /// 用量统计
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+        latency_ms: u32,
+        cost: Option<f64>,
     },
 }
 
@@ -184,6 +216,119 @@ impl MessageBuilder {
             parts: self.parts,
             token_count,
             cost,
+        }
+    }
+}
+
+// =============================================================================
+// 单元测试
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 测试 WaveMarker 的序列化与反序列化
+    #[test]
+    fn test_wave_marker_serde() {
+        let part = Part::WaveMarker {
+            step: 1,
+            total: Some(3),
+            git_snapshot: Some("abc123".to_string()),
+            timestamp: 1715600000000,
+            delta_tokens: TokenUsage {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+            },
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"type\":\"wave_marker\""));
+        assert!(json.contains("\"step\":1"));
+        assert!(json.contains("\"total\":3"));
+        assert!(json.contains("\"git_snapshot\":\"abc123\""));
+        assert!(json.contains("\"timestamp\":1715600000000"));
+        assert!(json.contains("\"prompt_tokens\":100"));
+        assert!(json.contains("\"completion_tokens\":50"));
+
+        let deserialized: Part = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            Part::WaveMarker {
+                step,
+                total,
+                git_snapshot,
+                timestamp,
+                delta_tokens,
+            } => {
+                assert_eq!(step, 1);
+                assert_eq!(total, Some(3));
+                assert_eq!(git_snapshot, Some("abc123".to_string()));
+                assert_eq!(timestamp, 1715600000000);
+                assert_eq!(delta_tokens.prompt_tokens, 100);
+                assert_eq!(delta_tokens.completion_tokens, 50);
+            }
+            _ => panic!("expected WaveMarker variant"),
+        }
+    }
+
+    /// 测试 ToolError 的序列化与反序列化
+    #[test]
+    fn test_tool_error_serde() {
+        let part = Part::ToolError {
+            tool_call_id: "call_123".to_string(),
+            content: "some output".to_string(),
+            error_message: "something went wrong".to_string(),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"type\":\"tool_error\""));
+        assert!(json.contains("\"tool_call_id\":\"call_123\""));
+        assert!(json.contains("\"content\":\"some output\""));
+        assert!(json.contains("\"error_message\":\"something went wrong\""));
+
+        let deserialized: Part = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            Part::ToolError {
+                tool_call_id,
+                content,
+                error_message,
+            } => {
+                assert_eq!(tool_call_id, "call_123");
+                assert_eq!(content, "some output");
+                assert_eq!(error_message, "something went wrong");
+            }
+            _ => panic!("expected ToolError variant"),
+        }
+    }
+
+    /// 测试 Usage 的序列化与反序列化
+    #[test]
+    fn test_usage_serde() {
+        let part = Part::Usage {
+            input_tokens: 1024,
+            output_tokens: 512,
+            latency_ms: 1200,
+            cost: Some(0.003),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"type\":\"usage\""));
+        assert!(json.contains("\"input_tokens\":1024"));
+        assert!(json.contains("\"output_tokens\":512"));
+        assert!(json.contains("\"latency_ms\":1200"));
+        assert!(json.contains("\"cost\":0.003"));
+
+        let deserialized: Part = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            Part::Usage {
+                input_tokens,
+                output_tokens,
+                latency_ms,
+                cost,
+            } => {
+                assert_eq!(input_tokens, 1024);
+                assert_eq!(output_tokens, 512);
+                assert_eq!(latency_ms, 1200);
+                assert_eq!(cost, Some(0.003));
+            }
+            _ => panic!("expected Usage variant"),
         }
     }
 }

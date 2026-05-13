@@ -1013,10 +1013,17 @@ pub async fn execute_tool_calls(
                     }
                 }
 
-                Part::ToolResult {
-                    tool_call_id: id,
-                    content,
-                    is_error,
+                if is_error {
+                    Part::ToolError {
+                        tool_call_id: id,
+                        content,
+                        error_message: "Tool execution failed".to_string(),
+                    }
+                } else {
+                    Part::ToolResult {
+                        tool_call_id: id,
+                        content,
+                    }
                 }
             })
         })

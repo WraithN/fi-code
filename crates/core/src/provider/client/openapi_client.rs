@@ -430,6 +430,17 @@ fn build_user_messages(msg: &Message) -> Vec<OpenAiMessage> {
             Part::ToolResult {
                 tool_call_id,
                 content: c,
+            } => {
+                tool_results.push(OpenAiMessage {
+                    role: "tool".to_string(),
+                    content: Some(c.clone()),
+                    tool_calls: None,
+                    tool_call_id: Some(tool_call_id.clone()),
+                });
+            }
+            Part::ToolError {
+                tool_call_id,
+                content: c,
                 ..
             } => {
                 tool_results.push(OpenAiMessage {

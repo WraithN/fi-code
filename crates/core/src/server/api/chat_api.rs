@@ -180,11 +180,19 @@ async fn send_last_assistant_details(messages: &[Message], sse_sender: &SseSende
             Part::ToolResult {
                 tool_call_id,
                 content,
-                is_error,
             } => Some(crate::server::transport::sse::DetailBlock::ToolResult {
                 tool_use_id: tool_call_id.clone(),
                 content: content.clone(),
-                is_error: *is_error,
+                is_error: false,
+            }),
+            Part::ToolError {
+                tool_call_id,
+                content,
+                ..
+            } => Some(crate::server::transport::sse::DetailBlock::ToolResult {
+                tool_use_id: tool_call_id.clone(),
+                content: content.clone(),
+                is_error: true,
             }),
             _ => None,
         })

@@ -148,7 +148,8 @@ impl AIClient for AnthropicClient {
 /// - `Part::Text` -> `{"type": "text", "text": ...}`
 /// - `Part::Image` -> 根据 `ImageSource` 生成 base64 或 url 类型的 image block
 /// - `Part::ToolUse` -> `{"type": "tool_use", "id", "name", "input"}`
-/// - `Part::ToolResult` -> `{"type": "tool_result", "tool_use_id", "content", "is_error"}`
+/// - `Part::ToolResult` -> `{"type": "tool_result", "tool_use_id", "content", "is_error": false}`
+/// - `Part::ToolError` -> `{"type": "tool_result", "tool_use_id", "content", "is_error": true}`
 /// - `Part::Reasoning` -> 暂映射为 text block 以保留内容
 fn convert_image_source_to_anthropic(source: &ImageSource) -> serde_json::Value {
     match source {
@@ -229,18 +230,28 @@ fn convert_part_to_anthropic(part: &Part) -> serde_json::Value {
         Part::ToolResult {
             tool_call_id,
             content: c,
-            is_error,
         } => json!({
             "type": "tool_result",
             "tool_use_id": tool_call_id,
             "content": c,
-            "is_error": is_error
+            "is_error": false
+        }),
+        Part::ToolError {
+            tool_call_id,
+            content: c,
+            ..
+        } => json!({
+            "type": "tool_result",
+            "tool_use_id": tool_call_id,
+            "content": c,
+            "is_error": true
         }),
         Part::Reasoning { thinking, .. } => {
             // Anthropic extended thinking 可能使用不同的 block 类型；
             // 当前为了保留内容，先映射为普通文本块
             json!({"type": "text", "text": thinking})
         }
+        _ => serde_json::Value::Null,
     }
 }
 
@@ -254,7 +265,12 @@ fn build_messages(messages: &[Message]) -> Vec<serde_json::Value> {
             Role::Developer => "developer",
         };
 
-        let content: Vec<_> = msg.parts.iter().map(convert_part_to_anthropic).collect();
+        let content: Vec<_> = msg
+            .parts
+            .iter()
+            .map(convert_part_to_anthropic)
+            .filter(|v| !v.is_null())
+            .collect();
 
         if !content.is_empty() {
             result.push(json!({"role": role_str, "content": content}));
