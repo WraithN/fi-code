@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::layout::Rect;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
@@ -115,6 +116,17 @@ impl ApiKeyDialog {
 /// 内部采用生产者-消费者模型处理事件：
 /// - `event_tx` / `event_rx`：跨线程/异步任务发送事件（如 SSE 流、HTTP 回调）。
 /// - 主循环通过 `tokio::select!` 同时监听定时 tick、应用事件和终端输入。
+/// 各组件在屏幕上的区域快照，由 draw() 方法在每次渲染后更新，用于鼠标 hit-test。
+#[derive(Default)]
+struct ComponentAreas {
+    left_drawer: Option<Rect>,
+    main: Rect,
+    input: Rect,
+    right_drawer: Rect,
+    log_window: Option<Rect>,
+    overlay: Option<Rect>,
+}
+
 pub struct TuiApp {
     layout: LayoutManager,
     theme: Arc<Theme>,
@@ -133,6 +145,7 @@ pub struct TuiApp {
 
     // === 应用状态 ===
     focus: FocusArea,                             // 当前焦点所在区域
+    component_areas: ComponentAreas,              // 各组件屏幕区域快照（用于鼠标 hit-test）
     is_generating: bool,                          // 是否正在等待模型生成回复
     should_quit: bool,                            // 是否退出主循环
     exit_confirm_pending: bool,                   // Ctrl+C 是否已按过一次，等待第二次确认退出
@@ -203,6 +216,7 @@ impl TuiApp {
             status_bar: StatusBar::new(),
             log_window: LogWindow::new(),
             focus: FocusArea::Input,
+            component_areas: ComponentAreas::default(),
             is_generating: false,
             should_quit: false,
             exit_confirm_pending: false,
@@ -413,6 +427,72 @@ impl TuiApp {
             frame.render_widget(ratatui::widgets::Clear, dialog_area);
             dialog.draw(frame, dialog_area);
         }
+
+        // 保存各组件区域，供鼠标 hit-test 使用
+        self.component_areas = ComponentAreas {
+            left_drawer: areas.left_drawer,
+            main: messages_area,
+            input: input_area,
+            right_drawer: areas.right_drawer,
+            log_window: areas.log_window,
+            overlay: areas.overlay,
+        };
+    }
+
+    /// 根据鼠标坐标检测点击了哪个焦点区域。
+    /// 按 Z-order 从高到低检测：overlay > dropdown > log_window > drawers > input > main。
+    fn hit_test(&self, column: u16, row: u16) -> Option<FocusArea> {
+        let areas = &self.component_areas;
+
+        // 辅助函数：检查点是否在 Rect 内
+        let contains = |rect: &Rect, x: u16, y: u16| -> bool {
+            x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+        };
+
+        // 1. 窄屏覆盖层（最高优先级）
+        if let Some(overlay) = areas.overlay {
+            if contains(&overlay, column, row) {
+                return Some(FocusArea::LeftDrawer);
+            }
+        }
+
+        // 2. Input 下拉菜单
+        if let Some(dropdown) = self.input.dropdown_area() {
+            if contains(&dropdown, column, row) {
+                return Some(FocusArea::Input);
+            }
+        }
+
+        // 3. LogWindow（不切换焦点，但消费事件）
+        if let Some(log) = areas.log_window {
+            if contains(&log, column, row) {
+                return None;
+            }
+        }
+
+        // 4. LeftDrawer
+        if let Some(left) = areas.left_drawer {
+            if contains(&left, column, row) {
+                return Some(FocusArea::LeftDrawer);
+            }
+        }
+
+        // 5. RightDrawer
+        if contains(&areas.right_drawer, column, row) {
+            return Some(FocusArea::RightDrawer);
+        }
+
+        // 6. Input
+        if contains(&areas.input, column, row) {
+            return Some(FocusArea::Input);
+        }
+
+        // 7. Main
+        if contains(&areas.main, column, row) {
+            return Some(FocusArea::Main);
+        }
+
+        None
     }
 
     /// 切换到下一套配色主题（循环）。
@@ -666,12 +746,25 @@ impl TuiApp {
                 self.dispatch_event(Event::Key(key)).await;
             }
             Event::Mouse(mouse) => {
-                if self.focus == FocusArea::Input {
-                    let app_event = self.input.handle_event(&Event::Mouse(mouse), true);
-                    if let Some(app_event) = app_event {
-                        self.handle_app_event(app_event).await;
+                use crossterm::event::MouseEventKind;
+
+                // 鼠标左键按下时，检测点击位置并切换焦点
+                if let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind {
+                    if let Some(new_focus) = self.hit_test(mouse.column, mouse.row) {
+                        if new_focus != self.focus {
+                            log_debug!(
+                                "[Client] Focus switched by mouse click | {:?} -> {:?}",
+                                self.focus,
+                                new_focus
+                            );
+                            self.focus = new_focus;
+                            self.dirty = true;
+                        }
                     }
                 }
+
+                // 继续将事件分发给（可能已切换的）焦点组件
+                self.dispatch_event(Event::Mouse(mouse)).await;
             }
             _ => {
                 self.maybe_focus_input(&event);

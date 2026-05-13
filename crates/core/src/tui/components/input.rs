@@ -161,6 +161,10 @@ impl Input {
         self.dropdown_area = Some(Rect::new(x, y, width, height));
     }
 
+    pub fn dropdown_area(&self) -> Option<Rect> {
+        self.dropdown_area
+    }
+
     pub fn set_content(&mut self, content: String) {
         self.content = content;
         self.cursor_position = self.content.len();
