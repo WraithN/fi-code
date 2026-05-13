@@ -31,7 +31,7 @@ use crate::log_debug;
 use crate::provider::base_client::{AIClient, ChunkContent, FinishReason, TokenUsage};
 use crate::provider::execute_tool_calls;
 use crate::provider::Chunk;
-use crate::session::message::{Message, Part, Role};
+use crate::session::message::{Message, Part, Role, TokenUsage as MsgTokenUsage};
 
 // =============================================================================
 // Agent 运行结果
@@ -134,6 +134,28 @@ impl AgentRunner {
         let mut finish_reason = None;
         let mut turn_usage = TokenUsage::default();
 
+        // 从当前消息历史中继承 session_id
+        let session_id = messages
+            .last()
+            .map(|m| m.session_id.clone())
+            .unwrap_or_default();
+
+        // === WaveMarker setup ===
+        let snapshot = crate::tools::basic_tools::BasicTool::git_write_tree().ok();
+        let token_baseline = turn_usage.clone();
+        let wave_marker = Part::WaveMarker {
+            step: messages.iter().filter(|m| m.role == Role::Assistant).count() as u32 + 1,
+            total: None,
+            git_snapshot: snapshot,
+            timestamp: crate::session::message::current_timestamp_ms(),
+            delta_tokens: MsgTokenUsage::default(),
+        };
+        if let Some(ref mut cb) = on_tool_event {
+            let _ = cb(crate::server::transport::sse::SseEvent::Part {
+                part: wave_marker.clone(),
+            });
+        }
+
         // 消息历史截断：超过 30 条时只保留最近 30 条
         const MAX_CONTEXT_MESSAGES: usize = 30;
         let messages_for_llm: &[Message] = if messages.len() > MAX_CONTEXT_MESSAGES {
@@ -167,17 +189,14 @@ impl AgentRunner {
             )
             .await?;
 
-        // 从当前消息历史中继承 session_id
-        let session_id = messages
-            .last()
-            .map(|m| m.session_id.clone())
-            .unwrap_or_default();
-
-        // 将 Assistant 的完整回复追加到消息历史
+        // 组装 Assistant 消息：WaveMarker + content_blocks
+        let mut assistant_parts = vec![wave_marker];
+        assistant_parts.extend(content_blocks.clone());
+        let assistant_idx = messages.len();
         messages.push(Message::new(
             session_id.clone(),
             Role::Assistant,
-            content_blocks.clone(),
+            assistant_parts,
         ));
 
         // 非 ToolUse 则结束循环
@@ -186,13 +205,44 @@ impl AgentRunner {
                 "AgentRunner::run_one_turn | finish_reason={:?}, stopping",
                 finish_reason
             );
+            let assistant_count = messages.iter().filter(|m| m.role == Role::Assistant).count() as u32;
+            update_wave_marker_runner(
+                messages,
+                assistant_idx,
+                Some(assistant_count),
+                &turn_usage,
+                &token_baseline,
+            );
             return Ok((false, finish_reason, turn_usage));
+        }
+
+        // 发送 ToolUse 事件
+        for block in &content_blocks {
+            if let Part::ToolUse { id, name, arguments } = block {
+                if let Some(ref mut cb) = on_tool_event {
+                    let _ = cb(crate::server::transport::sse::SseEvent::Part {
+                        part: Part::ToolUse {
+                            id: id.clone(),
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        },
+                    });
+                }
+            }
         }
 
         // 执行所有工具调用并收集结果
         let tool_results = execute_tool_calls(&content_blocks, on_tool_event).await;
         if tool_results.is_empty() {
             log_debug!("AgentRunner::run_one_turn | tool_use but no results, stopping");
+            let assistant_count = messages.iter().filter(|m| m.role == Role::Assistant).count() as u32;
+            update_wave_marker_runner(
+                messages,
+                assistant_idx,
+                Some(assistant_count),
+                &turn_usage,
+                &token_baseline,
+            );
             return Ok((false, finish_reason, turn_usage));
         }
 
@@ -211,6 +261,14 @@ impl AgentRunner {
             .any(|p| matches!(p, Part::Text { .. }));
 
         if all_success && has_preamble {
+            let assistant_count = messages.iter().filter(|m| m.role == Role::Assistant).count() as u32;
+            update_wave_marker_runner(
+                messages,
+                assistant_idx,
+                Some(assistant_count),
+                &turn_usage,
+                &token_baseline,
+            );
             let summary = format_tool_results(&content_blocks, &tool_results);
             log_debug!("AgentRunner::direct output | summary_len={}", summary.len());
 
@@ -229,6 +287,14 @@ impl AgentRunner {
 
         // 将工具结果封装为 User 消息回传
         messages.push(Message::new(session_id, Role::User, tool_results));
+
+        update_wave_marker_runner(
+            messages,
+            assistant_idx,
+            None,
+            &turn_usage,
+            &token_baseline,
+        );
 
         Ok((true, finish_reason, turn_usage))
     }
@@ -321,4 +387,30 @@ fn format_tool_results(content_blocks: &[Part], tool_results: &[Part]) -> String
         }
     }
     lines.join("\n")
+}
+
+/// 更新 Assistant 消息中的 WaveMarker。
+fn update_wave_marker_runner(
+    messages: &mut [Message],
+    idx: usize,
+    total: Option<u32>,
+    current_usage: &TokenUsage,
+    baseline: &TokenUsage,
+) {
+    if let Some(Part::WaveMarker {
+        delta_tokens,
+        total: t,
+        ..
+    }) = messages[idx].parts.first_mut()
+    {
+        *delta_tokens = MsgTokenUsage {
+            prompt_tokens: current_usage
+                .prompt_tokens
+                .saturating_sub(baseline.prompt_tokens),
+            completion_tokens: current_usage
+                .completion_tokens
+                .saturating_sub(baseline.completion_tokens),
+        };
+        *t = total;
+    }
 }
