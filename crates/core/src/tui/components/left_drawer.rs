@@ -24,7 +24,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
@@ -46,6 +46,7 @@ pub struct LeftDrawer {
     files: Vec<FileNode>,
     selected_index: usize,
     expanded_folders: std::collections::HashSet<String>, // 预留：记录已展开的文件夹
+    scroll_offset: usize, // 垂直滚动偏移
 }
 
 impl LeftDrawer {
@@ -54,7 +55,17 @@ impl LeftDrawer {
             files: Vec::new(),
             selected_index: 0,
             expanded_folders: std::collections::HashSet::new(),
+            scroll_offset: 0,
         }
+    }
+
+    pub fn scroll_up(&mut self, delta: usize) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(delta);
+    }
+
+    pub fn scroll_down(&mut self, delta: usize) {
+        let max = self.files.len().saturating_sub(1);
+        self.scroll_offset = (self.scroll_offset + delta).min(max);
     }
 
     /// 设置文件列表并重置选中位置到顶部。
@@ -83,14 +94,19 @@ impl Component for LeftDrawer {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
+        let viewport_height = inner.height as usize;
+
         let items: Vec<Line> = self
             .files
             .iter()
+            .skip(self.scroll_offset)
+            .take(viewport_height)
             .enumerate()
             .map(|(i, file)| {
+                let actual_index = self.scroll_offset + i;
                 let indent = "  ".repeat(file.depth);
                 let icon = if file.is_dir { "📁 " } else { "📄 " };
-                let style = if i == self.selected_index {
+                let style = if actual_index == self.selected_index {
                     theme.style_selection()
                 } else {
                     theme.style_primary()
@@ -105,6 +121,20 @@ impl Component for LeftDrawer {
 
         let paragraph = Paragraph::new(items);
         frame.render_widget(paragraph, inner);
+
+        // 渲染 scrollbar（内容超出时）
+        if self.files.len() > viewport_height {
+            let mut scrollbar_state = ScrollbarState::default()
+                .content_length(self.files.len().saturating_sub(1))
+                .position(self.scroll_offset)
+                .viewport_content_length(viewport_height);
+
+            let scrollbar = Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .style(Style::default().fg(theme.border));
+
+            frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+        }
     }
 
     /// 处理导航事件：上下方向键移动选中，Enter 触发选中文件事件。
@@ -131,6 +161,19 @@ impl Component for LeftDrawer {
                     if let Some(file) = self.files.get(self.selected_index) {
                         return Some(AppEvent::SelectFile(file.path.clone()));
                     }
+                    None
+                }
+                _ => None,
+            }
+        } else if let Event::Mouse(mouse) = event {
+            use crossterm::event::MouseEventKind;
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.scroll_up(3);
+                    None
+                }
+                MouseEventKind::ScrollDown => {
+                    self.scroll_down(3);
                     None
                 }
                 _ => None,
@@ -164,5 +207,24 @@ mod tests {
         ]);
 
         assert_eq!(drawer.selected_index, 0);
+    }
+
+    #[test]
+    fn test_scroll_boundary() {
+        let mut drawer = LeftDrawer::new();
+        drawer.set_files(vec![
+            FileNode { path: "a".into(), name: "a".into(), is_dir: false, depth: 0 },
+            FileNode { path: "b".into(), name: "b".into(), is_dir: false, depth: 0 },
+            FileNode { path: "c".into(), name: "c".into(), is_dir: false, depth: 0 },
+        ]);
+
+        drawer.scroll_down(10);
+        assert_eq!(drawer.scroll_offset, 2);
+
+        drawer.scroll_up(1);
+        assert_eq!(drawer.scroll_offset, 1);
+
+        drawer.scroll_up(10);
+        assert_eq!(drawer.scroll_offset, 0);
     }
 }
