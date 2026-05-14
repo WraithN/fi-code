@@ -21,7 +21,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -75,6 +75,7 @@ pub struct Chat {
     pub card_hit_areas: RefCell<Vec<(String, Rect)>>, // 卡片点击区域（card_id -> rect）
     pub renderer_registry: PartRendererRegistry,  // Part 渲染器注册表
     last_inner_size: Cell<Option<Rect>>,          // 最近一次 draw 的 inner 区域尺寸（用于滚动 clamp）
+    pub auto_scroll: bool,                         // 是否自动滚动到底部跟随新内容
 }
 
 /// 终端 spinner 动画帧（Braille 点阵字符），每 tick 轮播一帧。
@@ -91,6 +92,7 @@ impl Chat {
             card_hit_areas: RefCell::new(Vec::new()),
             renderer_registry: PartRendererRegistry::new(),
             last_inner_size: Cell::new(None),
+            auto_scroll: true,
         }
     }
 
@@ -121,6 +123,7 @@ impl Chat {
         self.turns.clear();
         self.messages.clear();
         self.scroll_offset = 0;
+        self.auto_scroll = true;
         self.card_hit_areas.borrow_mut().clear();
         self.last_inner_size.set(None);
     }
@@ -270,6 +273,7 @@ impl Chat {
         if self.scroll_offset > 0 {
             self.scroll_offset -= 1;
         }
+        self.auto_scroll = false; // 用户手动向上滚动，暂停自动跟随
         Some(AppEvent::ScrollUp)
     }
 
@@ -318,7 +322,17 @@ impl Component for Chat {
         self.last_inner_size.set(Some(inner));
         frame.render_widget(block, area);
 
-        let scroll_y = self.scroll_offset as u16;
+        // 计算总高度和最大滚动偏移
+        let total_height = self.total_height(inner.width);
+        let max_scroll_offset = total_height.saturating_sub(inner.height) as usize;
+
+        // 如果开启了自动跟随，滚动偏移始终锁定到底部；否则使用用户手动设置的偏移
+        let scroll_y = if self.auto_scroll {
+            max_scroll_offset
+        } else {
+            self.scroll_offset.min(max_scroll_offset)
+        } as u16;
+
         let mut current_y = 0u16; // 虚拟 Y 坐标（相对于内容顶部）
 
         // 辅助函数：计算元素与视口的交集区域，返回渲染 Rect 和顶部跳过的行数。
@@ -442,11 +456,14 @@ impl Component for Chat {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => {
                         self.scroll_offset = self.scroll_offset.saturating_sub(3);
+                        self.auto_scroll = false; // 用户手动向上滚动，暂停自动跟随
                         Some(AppEvent::ScrollUp)
                     }
                     MouseEventKind::ScrollDown => {
                         let max_offset = self.max_scroll_offset();
                         self.scroll_offset = (self.scroll_offset + 3).min(max_offset);
+                        // 如果滚动到了底部，恢复自动跟随
+                        self.auto_scroll = self.scroll_offset >= max_offset;
                         Some(AppEvent::ScrollDown)
                     }
                     _ => None,
@@ -463,6 +480,8 @@ impl Component for Chat {
                     | (KeyModifiers::NONE, KeyCode::PageDown) => {
                         let max_offset = self.max_scroll_offset();
                         self.scroll_offset = (self.scroll_offset + 1).min(max_offset);
+                        // 如果滚动到了底部，恢复自动跟随
+                        self.auto_scroll = self.scroll_offset >= max_offset;
                         Some(AppEvent::ScrollDown)
                     }
                     (KeyModifiers::NONE, KeyCode::Char('g')) => {
@@ -602,5 +621,124 @@ mod tests {
         });
         assert_eq!(chat.turns[0].parts.len(), 1);
         assert!(matches!(chat.turns[0].parts[0], Part::Text { .. }));
+    }
+
+    // ========== 自动滚动跟随测试 ==========
+
+    #[test]
+    fn test_auto_scroll_default_true() {
+        let chat = Chat::new();
+        assert!(chat.auto_scroll, "默认应开启自动跟随");
+    }
+
+    #[test]
+    fn test_page_up_disables_auto_scroll() {
+        let mut chat = Chat::new();
+        // 设置一个较小的视口，使内容可以滚动
+        chat.last_inner_size.set(Some(Rect::new(0, 0, 10, 5)));
+        chat.add_user_message("a very long message that wraps across multiple lines");
+        chat.scroll_offset = 5;
+        chat.auto_scroll = true;
+
+        let event = Event::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        chat.handle_event(&event, true);
+
+        assert!(!chat.auto_scroll, "PageUp 后应暂停自动跟随");
+    }
+
+    #[test]
+    fn test_scroll_up_disables_auto_scroll() {
+        let mut chat = Chat::new();
+        chat.last_inner_size.set(Some(Rect::new(0, 0, 10, 5)));
+        chat.add_user_message("a very long message that wraps across multiple lines");
+        chat.scroll_offset = 5;
+        chat.auto_scroll = true;
+
+        let event = Event::Mouse(MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        chat.handle_event(&event, true);
+
+        assert!(!chat.auto_scroll, "鼠标滚轮向上滚动后应暂停自动跟随");
+    }
+
+    #[test]
+    fn test_page_down_to_bottom_enables_auto_scroll() {
+        let mut chat = Chat::new();
+        // 使用窄视口和足够长的消息，确保 max_scroll_offset > 0
+        chat.last_inner_size.set(Some(Rect::new(0, 0, 10, 5)));
+        chat.add_user_message("line1 line2 line3 line4 line5 line6 line7 line8 line9 line10");
+        chat.add_user_message("another line to make it scrollable for sure");
+
+        let max_offset = chat.max_scroll_offset();
+        assert!(max_offset > 0, "测试前提：内容应超出视口高度");
+
+        // 模拟用户先向上滚动，然后 PageDown 回到底部
+        chat.scroll_offset = max_offset.saturating_sub(1);
+        chat.auto_scroll = false;
+
+        let event = Event::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        chat.handle_event(&event, true);
+
+        assert!(chat.auto_scroll, "PageDown 回到底部后应恢复自动跟随");
+    }
+
+    #[test]
+    fn test_scroll_down_to_bottom_enables_auto_scroll() {
+        let mut chat = Chat::new();
+        chat.last_inner_size.set(Some(Rect::new(0, 0, 10, 5)));
+        chat.add_user_message("line1 line2 line3 line4 line5 line6 line7 line8 line9 line10");
+        chat.add_user_message("another line to make it scrollable for sure");
+
+        let max_offset = chat.max_scroll_offset();
+        assert!(max_offset > 2, "测试前提：内容应足够长，允许从 max-2 滚到底部");
+
+        chat.scroll_offset = max_offset.saturating_sub(2);
+        chat.auto_scroll = false;
+
+        let event = Event::Mouse(MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollDown,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        chat.handle_event(&event, true);
+
+        assert!(chat.auto_scroll, "鼠标滚轮向下回到底部后应恢复自动跟随");
+    }
+
+    #[test]
+    fn test_page_down_not_to_bottom_keeps_auto_scroll_false() {
+        let mut chat = Chat::new();
+        chat.last_inner_size.set(Some(Rect::new(0, 0, 10, 5)));
+        chat.add_user_message("line1 line2 line3 line4 line5 line6 line7 line8 line9 line10");
+        chat.add_user_message("another line to make it scrollable for sure");
+
+        let max_offset = chat.max_scroll_offset();
+        assert!(
+            max_offset > 2,
+            "测试前提：max_scroll_offset 应大于 2，以便从 0 滚 1 行不到底部"
+        );
+
+        // 从顶部开始，只滚一行，不到底部
+        chat.scroll_offset = 0;
+        chat.auto_scroll = false;
+
+        let event = Event::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        chat.handle_event(&event, true);
+
+        assert!(!chat.auto_scroll, "PageDown 不到底部时应保持暂停状态");
+        assert_eq!(chat.scroll_offset, 1);
+    }
+
+    #[test]
+    fn test_clear_messages_resets_auto_scroll() {
+        let mut chat = Chat::new();
+        chat.auto_scroll = false;
+        chat.clear_messages();
+        assert!(chat.auto_scroll, "clear_messages 应重置 auto_scroll 为 true");
     }
 }
