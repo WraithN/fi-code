@@ -24,7 +24,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 
@@ -133,25 +133,22 @@ impl Component for LogWindow {
                 LogLevel::Error => theme.error,
             };
             let level_str = match line.level {
-                LogLevel::Info => "INFO ",
+                LogLevel::Info => "INFO",
                 LogLevel::Debug => "DEBUG",
                 LogLevel::Trace => "TRACE",
                 LogLevel::Error => "ERROR",
             };
+            // 简化格式：[timestamp] [LEVEL] message，去掉 module 以节省空间
             text_lines.push(Line::from(vec![
                 Span::styled(
                     format!("[{}] ", line.timestamp),
                     Style::default().fg(theme.text_muted),
                 ),
                 Span::styled(
-                    format!("[{:<5}] ", level_str),
+                    format!("[{}] ", level_str),
                     Style::default()
                         .fg(level_color)
                         .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("[{:<20.20}] ", line.module),
-                    Style::default().fg(theme.text_muted),
                 ),
                 Span::styled(&line.message, Style::default().fg(theme.text_primary)),
             ]));
@@ -163,7 +160,10 @@ impl Component for LogWindow {
             .border_style(Style::default().fg(theme.border))
             .style(theme.drawer_style());
 
-        let paragraph = Paragraph::new(text_lines).block(block);
+        // 启用自动折行，长日志一行展示不下时会换行显示
+        let paragraph = Paragraph::new(text_lines)
+            .block(block)
+            .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
 
         // 渲染 scrollbar（内容超出时）

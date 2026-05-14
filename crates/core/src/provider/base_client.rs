@@ -172,17 +172,20 @@ fn is_retryable_error(err: &reqwest::Error) -> bool {
 }
 
 /// 计算第 `attempt` 次重试的退避时间（0-based）。
-/// 使用 Full Jitter 策略：在 `[0, min(base*2^attempt, max_delay))` 内随机取值。
+/// 使用 Full Jitter 策略：在 `[min_delay, min(base*2^attempt, max_delay))` 内随机取值。
+/// 设置最小延迟 100ms，避免网络错误时几乎无间隔的无效重试。
 fn compute_backoff(attempt: u32, base: Duration, max: Duration) -> Duration {
+    let min_delay = Duration::from_millis(100);
     let exp = std::cmp::min(attempt, 6); // 防止指数溢出，最大 2^6 = 64
     let delay = base.saturating_mul(2_u32.pow(exp));
     let capped = std::cmp::min(delay, max);
 
-    if capped.is_zero() {
-        return Duration::ZERO;
+    if capped <= min_delay {
+        return min_delay;
     }
 
-    let millis = rand::random::<u64>() % (capped.as_millis() as u64).max(1);
+    let range = (capped.as_millis() as u64) - (min_delay.as_millis() as u64);
+    let millis = min_delay.as_millis() as u64 + (rand::random::<u64>() % range.max(1));
     Duration::from_millis(millis)
 }
 
