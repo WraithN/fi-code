@@ -905,6 +905,11 @@ pub async fn tool_call(
 // 现在直接返回结构化的 `Vec<Part>`，省去上层再做一次格式转换。
 // 因 MCP 调用需要异步，此函数已升级为 `async`。
 
+/// 工具调用最大重试次数。
+const MAX_TOOL_RETRIES: u32 = 3;
+/// 工具调用重试间隔。
+const TOOL_RETRY_DELAY_MS: u64 = 200;
+
 async fn execute_single_tool_call(
     id: &str,
     name: &str,
@@ -943,36 +948,65 @@ async fn execute_single_tool_call(
         _ => HashMap::new(),
     };
 
-    match tool_call(name, &input).await {
-        Ok(output) => {
-            log_trace!(
-                "execute_tool_call raw output | name={} | output={}",
-                name,
-                output
-            );
-            log_debug!(
-                "execute_tool_call success | name={} | output_len={}",
-                name,
-                output.len()
-            );
-            (output, false)
-        }
-        Err(e) => {
-            log_trace!("execute_tool_call raw error | name={} | err={}", name, e);
-            log_debug!("execute_tool_call error | name={} | err={}", name, e);
-            // 对缺少必需参数的错误进行增强，提示 LLM 重新检查参数要求
-            let enhanced_error = if e.starts_with("Missing") {
-                format!(
-                    "Error: {}\n\
-                     请检查工具 '{}' 的参数要求，确保提供了所有必需参数，然后重新调用此工具。",
-                    e, name
-                )
-            } else {
-                format!("Error: {}", e)
-            };
-            (enhanced_error, true)
+    // =============================================================================
+    // Agent 层重试：对非参数类错误自动重试最多 MAX_TOOL_RETRIES 次
+    // =============================================================================
+    // 参数类错误（Missing xxx、JSON 解析失败）不重试，因为重试不会改变结果。
+    // 其他错误（如网络超时、文件锁、临时 IO 错误）重试可能成功。
+    let mut last_error = String::new();
+    for attempt in 0..=MAX_TOOL_RETRIES {
+        match tool_call(name, &input).await {
+            Ok(output) => {
+                log_trace!(
+                    "execute_tool_call raw output | name={} | output={}",
+                    name,
+                    output
+                );
+                log_debug!(
+                    "execute_tool_call success | name={} | output_len={}",
+                    name,
+                    output.len()
+                );
+                return (output, false);
+            }
+            Err(e) => {
+                log_trace!(
+                    "execute_tool_call raw error | name={} | attempt={}/{} | err={}",
+                    name, attempt, MAX_TOOL_RETRIES, e
+                );
+
+                // 参数类错误：立即返回，不重试
+                if e.starts_with("Missing") || e.starts_with("参数 JSON 解析失败") {
+                    let enhanced_error = format!(
+                        "Error: {}\n\
+                         请检查工具 '{}' 的参数要求，确保提供了所有必需参数，然后重新调用此工具。",
+                        e, name
+                    );
+                    return (enhanced_error, true);
+                }
+
+                last_error = e;
+                if attempt < MAX_TOOL_RETRIES {
+                    log_debug!(
+                        "execute_tool_call retry | name={} | attempt={}/{} | delay={}ms",
+                        name,
+                        attempt + 1,
+                        MAX_TOOL_RETRIES,
+                        TOOL_RETRY_DELAY_MS
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(TOOL_RETRY_DELAY_MS))
+                        .await;
+                }
+            }
         }
     }
+
+    log_debug!(
+        "execute_tool_call final error | name={} | retries_exhausted | err={}",
+        name,
+        last_error
+    );
+    (format!("Error: {} (已重试 {} 次)", last_error, MAX_TOOL_RETRIES), true)
 }
 
 pub async fn execute_tool_calls(
