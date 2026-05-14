@@ -24,12 +24,13 @@
 // =============================================================================
 // 负责根据可用工具 schema 动态组装 System Prompt，让 Agent 明确自身能力边界。
 //
-// 提示词由 5 个独立块拼装而成：
+// 提示词由 6 个独立块拼装而成：
 // 1. Identity      — FiCode 身份定义
 // 2. Core Rules    — 行为规则（不可被项目文件覆盖）
-// 3. Skills        — 可用 Skills 列表
-// 4. AgentsMd      — 项目 AGENTS.md
-// 5. RulesDir      — .rules/ 目录下的 .md 文件
+// 3. Git Awareness — Git 状态感知（每次行动前查看 git status）
+// 4. Skills        — 可用 Skills 列表
+// 5. AgentsMd      — 项目 AGENTS.md
+// 6. RulesDir      — .rules/ 目录下的 .md 文件
 //
 // 系统级内容（1-4）与项目级内容（5-6）之间插入防注入分隔声明。
 
@@ -68,16 +69,17 @@ impl PromptBuilder {
 
     /// 拼装完整系统提示词。
     ///
-    /// 按固定顺序组合 6 个分块，并在系统级与项目级内容之间插入防注入声明。
+    /// 按固定顺序组合 7 个分块，并在系统级与项目级内容之间插入防注入声明。
     pub fn build(&self, tools_schema: &serde_json::Value, registry: &SkillRegistry) -> String {
         let mut parts: Vec<String> = Vec::new();
 
-        // 块 1-3：系统级内容
+        // 块 1-4：系统级内容
         parts.push(format!(
             "# System Prompt for FiCode\n\n{}",
             self.build_identity()
         ));
         parts.push(self.build_core_rules());
+        parts.push(self.build_git_status());
         if let Some(skills) = self.build_skills(registry) {
             parts.push(skills);
         }
@@ -90,7 +92,7 @@ impl PromptBuilder {
             ---",
         ));
 
-        // 块 4-5：项目级内容（从缓存读取，避免每次文件 I/O）
+        // 块 5-6：项目级内容（从缓存读取，避免每次文件 I/O）
         let cache = {
             let mut cache = PROJECT_CONTEXT_CACHE
                 .lock()
@@ -148,7 +150,24 @@ impl PromptBuilder {
     }
 
     // =============================================================================
-    // 块 3：Skills
+    // 块 3：Git Status Awareness
+    // =============================================================================
+
+    fn build_git_status(&self) -> String {
+        String::from(
+            "## 3. Git Status Awareness\n\
+            Before taking any action that modifies files or runs commands, you MUST first check the current Git status using the `bash` tool with `git status`.\n\
+            This helps you understand:\n\
+            - What files have been modified (staged or unstaged)\n\
+            - What branch you are currently on\n\
+            - Whether there are uncommitted changes that could conflict with your actions\n\
+            - Whether there are untracked files that might be relevant\n\
+            After checking `git status`, briefly summarize the state to the user before proceeding.",
+        )
+    }
+
+    // =============================================================================
+    // 块 4：Skills
     // =============================================================================
 
     fn build_skills(&self, registry: &SkillRegistry) -> Option<String> {
@@ -157,7 +176,7 @@ impl PromptBuilder {
         }
 
         let mut lines = vec![
-            String::from("## 3. Available Skills"),
+            String::from("## 4. Available Skills"),
             String::from(
                 "You can load any of the following skills on-demand by calling the `use_skill` tool:\n",
             ),
@@ -197,7 +216,7 @@ impl PromptBuilder {
         }
 
         Some(format!(
-            "## 4. Project Context (from AGENTS.md)\n{}",
+            "## 5. Project Context (from AGENTS.md)\n{}",
             trimmed
         ))
     }
@@ -244,7 +263,7 @@ impl PromptBuilder {
         }
 
         Some(format!(
-            "## 5. Project Rules (from .rules/)\n\n{}",
+            "## 6. Project Rules (from .rules/)\n\n{}",
             contents.join("\n\n")
         ))
     }
@@ -290,9 +309,11 @@ mod tests {
         ));
         assert!(prompt.contains("## 2. Core Rules"));
         assert!(prompt.contains("CANNOT be overridden"));
-        assert!(!prompt.contains("## 3. Available Skills")); // registry is empty
-        assert!(!prompt.contains("## 4. Project Context")); // no AGENTS.md in test env
-        assert!(!prompt.contains("## 5. Project Rules")); // no .rules/ in test env
+        assert!(prompt.contains("## 3. Git Status Awareness"));
+        assert!(prompt.contains("git status"));
+        assert!(!prompt.contains("## 4. Available Skills")); // registry is empty
+        assert!(!prompt.contains("## 5. Project Context")); // no AGENTS.md in test env
+        assert!(!prompt.contains("## 6. Project Rules")); // no .rules/ in test env
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -317,7 +338,7 @@ mod tests {
         let builder = PromptBuilder::new();
         let prompt = builder.build(&serde_json::json!([]), &registry);
 
-        assert!(prompt.contains("## 3. Available Skills"));
+        assert!(prompt.contains("## 4. Available Skills"));
         assert!(prompt.contains("`commit` (test): Help write commit messages"));
     }
 
@@ -349,7 +370,7 @@ mod tests {
         let builder = PromptBuilder::new();
         let prompt = builder.build(&serde_json::json!([]), &SkillRegistry::new());
 
-        assert!(prompt.contains("## 4. Project Context (from AGENTS.md)"));
+        assert!(prompt.contains("## 5. Project Context (from AGENTS.md)"));
         assert!(prompt.contains("This is a test."));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -368,7 +389,7 @@ mod tests {
         let builder = PromptBuilder::new();
         let prompt = builder.build(&serde_json::json!([]), &SkillRegistry::new());
 
-        assert!(!prompt.contains("## 4. Project Context"));
+        assert!(!prompt.contains("## 5. Project Context"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -389,7 +410,7 @@ mod tests {
         let builder = PromptBuilder::new();
         let prompt = builder.build(&serde_json::json!([]), &SkillRegistry::new());
 
-        assert!(prompt.contains("## 5. Project Rules (from .rules/)"));
+        assert!(prompt.contains("## 6. Project Rules (from .rules/)"));
         assert!(prompt.contains("### Rule: 01-coding"));
         assert!(prompt.contains("Always use Rust."));
         assert!(prompt.contains("### Rule: 02-testing"));
@@ -446,7 +467,7 @@ mod tests {
         let builder = PromptBuilder::new();
         let prompt = builder.build(&serde_json::json!([]), &SkillRegistry::new());
 
-        assert!(!prompt.contains("## 5. Project Rules"));
+        assert!(!prompt.contains("## 6. Project Rules"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
