@@ -109,6 +109,7 @@ pub async fn execute_handle_task_plan(
             }
         };
         let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
             .build()
             .unwrap();
         rt.block_on(async move { task_manager.execute_plan(&mut plan, &mut on_progress).await })
