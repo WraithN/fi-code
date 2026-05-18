@@ -4,10 +4,20 @@ import { TextPart } from './TextPart';
 import { ThinkingPart } from './ThinkingPart';
 import { UsagePart } from './UsagePart';
 import { WaveMarkerPart } from './WaveMarkerPart';
+import { ToolUsePart } from './ToolUsePart';
+import { ToolResultPart } from './ToolResultPart';
+import { ToolErrorPart } from './ToolErrorPart';
+import { CodeBlockPart } from './CodeBlockPart';
+import { ImagePart } from './ImagePart';
 
 const partRenderers: Record<string, React.FC<{ part: Part }>> = {
   text: TextPart as React.FC<{ part: Part }>,
   thinking: ThinkingPart as React.FC<{ part: Part }>,
+  tool_use: ToolUsePart as React.FC<{ part: Part }>,
+  tool_result: ToolResultPart as React.FC<{ part: Part }>,
+  tool_error: ToolErrorPart as React.FC<{ part: Part }>,
+  code_block: CodeBlockPart as React.FC<{ part: Part }>,
+  image: ImagePart as React.FC<{ part: Part }>,
   usage: UsagePart as React.FC<{ part: Part }>,
   wave_marker: WaveMarkerPart as React.FC<{ part: Part }>,
 };
