@@ -9,9 +9,11 @@ import { useUIStore } from '../../stores/uiStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { getPresetByName, applyTheme } from '../../themes';
 import { getStatus } from '../../services/model';
+import { apiClient } from '../../services/apiClient';
+import { CommandMeta } from '../../types/command';
 
 export const AppLayout: React.FC = () => {
-  const { themeName, setCurrentModel } = useUIStore();
+  const { themeName, setCurrentModel, setCommands } = useUIStore();
   const { setConnectionStatus } = useConnectionStore();
 
   useEffect(() => {
@@ -34,6 +36,14 @@ export const AppLayout: React.FC = () => {
         setConnectionStatus('error', err.message);
       });
   }, [setCurrentModel, setConnectionStatus]);
+
+  // 拉取可用指令列表
+  useEffect(() => {
+    apiClient
+      .get<CommandMeta[]>('/api/commands')
+      .then((cmds) => setCommands(cmds))
+      .catch((err) => console.warn('[AppLayout] Failed to load commands:', err));
+  }, [setCommands]);
 
   return (
     <div className="w-screen h-screen flex flex-col bg-bg text-text-primary overflow-hidden">
