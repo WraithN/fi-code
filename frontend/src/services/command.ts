@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from './apiClient';
 import { CommandMeta } from '../types/api';
 
 export async function listCommands(): Promise<CommandMeta[]> {

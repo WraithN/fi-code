@@ -5,11 +5,11 @@ import { StatusBar } from './StatusBar';
 import { LogPanel } from './LogPanel';
 import { ChatPanel } from '../chat/ChatPanel';
 import { InputBox } from '../chat/InputBox';
-import { useAppStore } from '../../stores/appStore';
+import { useUIStore } from '../../stores/uiStore';
 import { getPresetByName, applyTheme } from '../../themes';
 
 export const AppLayout: React.FC = () => {
-  const { themeName } = useAppStore();
+  const { themeName } = useUIStore();
 
   useEffect(() => {
     const preset = getPresetByName(themeName);

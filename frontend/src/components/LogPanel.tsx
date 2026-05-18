@@ -1,9 +1,9 @@
 import React from 'react';
-import { useAppStore } from '../stores/appStore';
+import { useUIStore } from '../stores/uiStore';
 
 export const LogPanel: React.FC = () => {
-  const logOpen = useAppStore(s => s.logOpen);
-  const toggleLog = useAppStore(s => s.toggleLog);
+  const logOpen = useUIStore((s) => s.logOpen);
+  const toggleLog = useUIStore((s) => s.toggleLog);
 
   if (!logOpen) return null;
 

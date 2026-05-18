@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from './apiClient';
 import { FileTreeResult } from '../types/api';
 
 export async function getFileTree(path: string = '.'): Promise<FileTreeResult> {

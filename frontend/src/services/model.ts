@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from './apiClient';
 
 export async function listModels(): Promise<unknown> {
   return apiClient.get<unknown>('/api/models');

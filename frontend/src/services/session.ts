@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient } from './apiClient';
 import { SessionListResult, SessionInfo } from '../types/api';
 
 export async function listSessions(): Promise<SessionListResult> {
