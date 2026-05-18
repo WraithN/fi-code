@@ -184,12 +184,14 @@ impl TuiClient {
         &self,
         session_id: Option<String>,
         message: String,
+        agent_type: fi_code_shared::dto::AgentType,
         tx: mpsc::Sender<AppEvent>,
     ) -> Result<String> {
         let url = format!("{}/chat", self.base_url);
         let req_body = json!({
             "session_id": session_id,
-            "message": message
+            "message": message,
+            "agent": agent_type
         });
         log_info!(
             "[Client] HTTP -> POST {} | session_id={:?} | message_len={}",

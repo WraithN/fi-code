@@ -19,6 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,7 +28,7 @@ use ratatui::layout::Rect;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
-use fi_code_shared::dto::CommandMeta;
+use fi_code_shared::dto::{AgentType, CommandMeta};
 use fi_code_core::log_debug;
 use fi_code_core::log_error;
 use fi_code_core::log_info;
@@ -48,6 +49,22 @@ use crate::components::{
 use fi_code_shared::tui_event::{AppEvent, FocusArea, LogLevel, LogLine, ProviderItem, QuestionAnswer};
 use crate::layout::{LayoutManager, PanelState};
 use crate::theme::Theme;
+
+/// 将调试日志追加写入 ~/.config/logs/tui.log
+pub(crate) fn tui_log(msg: &str) {
+    let path = directories::ProjectDirs::from("", "", "fi-code")
+        .map(|d| d.config_dir().to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/fi-code"))
+        .join("logs")
+        .join("tui.log");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(file, "[{}] {}", now, msg);
+    }
+}
 
 use super::client::TuiClient;
 
@@ -155,6 +172,7 @@ pub struct TuiApp {
     question_dialog: Option<QuestionDialog>,      // 问题询问模态框
     generation_start: Option<std::time::Instant>, // 当前生成轮次的开始时间
     providers: Vec<ProviderItem>,                 // 模型提供商列表（从后端加载）
+    current_agent: AgentType,                     // 当前 Agent 类型
 
     // === 后端通信与事件通道 ===
     client: TuiClient,                  // HTTP 客户端，对接本地 4040 端口服务
@@ -226,6 +244,7 @@ impl TuiApp {
             question_dialog: None,
             generation_start: None,
             providers: Vec::new(),
+            current_agent: AgentType::Build,
             client: TuiClient::new(),
             event_tx,
             event_rx,
@@ -602,6 +621,14 @@ impl TuiApp {
                 self.exit_confirm_pending = false;
                 self.handle_app_event(AppEvent::ToggleLogWindow).await;
             }
+            'a' => {
+                self.exit_confirm_pending = false;
+                let next = match self.current_agent {
+                    AgentType::Build => AgentType::Plan,
+                    AgentType::Plan => AgentType::Build,
+                };
+                self.handle_app_event(AppEvent::SwitchAgent(next)).await;
+            }
             _ => {
                 self.exit_confirm_pending = false;
             }
@@ -934,6 +961,27 @@ impl TuiApp {
                 self.is_generating = false;
                 self.generation_start = None;
             }
+            AppEvent::SwitchAgent(agent_type) => {
+                if self.is_generating {
+                    self.chat.add_system_message(
+                        "Please wait for the current response to complete before switching agents.",
+                    );
+                    return;
+                }
+                self.current_agent = agent_type;
+                let profile = fi_code_core::agent::AgentProfile::for_type(agent_type);
+                self.status_bar.set_agent(profile.name.to_string());
+                let _ = self.event_tx
+                    .send(AppEvent::AgentSwitched {
+                        agent_type,
+                        agent_name: profile.name.to_string(),
+                    })
+                    .await;
+            }
+            AppEvent::AgentSwitched { ref agent_name, .. } => {
+                self.chat
+                    .add_system_message(&format!("Switched to {} Agent", agent_name));
+            }
             AppEvent::CardAction(ref _action) => {
                 // Part-based rendering does not support card actions yet
             }
@@ -1232,9 +1280,10 @@ impl TuiApp {
         let client = self.client.clone();
         let tx = self.event_tx.clone();
         let session_id = self.input.session_id();
+        let agent_type = self.current_agent;
 
         tokio::spawn(async move {
-            match client.chat(session_id, message, tx.clone()).await {
+            match client.chat(session_id, message, agent_type, tx.clone()).await {
                 Ok(sid) => {
                     log_info!("[Client] chat stream completed | session_id={}", sid);
                     let _ = tx.send(AppEvent::ChatComplete).await;
@@ -1551,6 +1600,7 @@ mod tests {
             generation_start: None,
             providers: Vec::new(),
             client: TuiClient::new(),
+            current_agent: fi_code_shared::dto::AgentType::Build,
             event_tx,
             event_rx,
             crossterm_rx,
