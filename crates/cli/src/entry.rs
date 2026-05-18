@@ -103,6 +103,12 @@ async fn start_web_mode(port: u16) -> anyhow::Result<EntryOutcome> {
 pub async fn run() -> Result<EntryOutcome> {
     let args = Args::parse();
 
+    // -W / --web 模式优先级高于默认 TUI
+    if let Some(port_opt) = args.web {
+        let port = port_opt.unwrap_or(4040);
+        return start_web_mode(port).await;
+    }
+
     // 如果指定了子命令
     match args.command {
         Some(Commands::Server { port }) => {
@@ -140,12 +146,6 @@ pub async fn run() -> Result<EntryOutcome> {
                 return Ok(EntryOutcome::StartTui { port: None });
             }
         }
-    }
-
-    // -W / --web 模式
-    if let Some(port_opt) = args.web {
-        let port = port_opt.unwrap_or(4040);
-        return start_web_mode(port).await;
     }
 
     #[cfg(debug_assertions)]
