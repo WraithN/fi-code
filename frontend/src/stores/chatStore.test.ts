@@ -1,39 +1,43 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { useChatStore } from './chatStore';
 
 describe('chatStore', () => {
+  beforeEach(() => {
+    useChatStore.getState().clearTurns();
+    useChatStore.getState().setAgent('build');
+  });
+
   it('should start a new turn', () => {
-    const store = useChatStore.getState();
-    store.clearTurns();
-    const turnId = store.startTurn('hello');
+    const turnId = useChatStore.getState().startTurn('hello');
     expect(turnId).toBeDefined();
-    expect(store.turns).toHaveLength(1);
-    expect(store.turns[0].userMessage).toBe('hello');
-    expect(store.turns[0].isComplete).toBe(false);
-    expect(store.isGenerating).toBe(true);
+
+    const state = useChatStore.getState();
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0].userMessage).toBe('hello');
+    expect(state.turns[0].isComplete).toBe(false);
+    expect(state.isGenerating).toBe(true);
   });
 
   it('should append part to current turn', () => {
-    const store = useChatStore.getState();
-    store.clearTurns();
-    const turnId = store.startTurn('hello');
-    store.appendPart(turnId, { type: 'text', text: 'world' });
-    expect(store.turns[0].parts).toHaveLength(1);
-    expect(store.turns[0].parts[0]).toEqual({ type: 'text', text: 'world' });
+    const turnId = useChatStore.getState().startTurn('hello');
+    useChatStore.getState().appendPart(turnId, { type: 'text', text: 'world' });
+
+    const state = useChatStore.getState();
+    expect(state.turns[0].parts).toHaveLength(1);
+    expect(state.turns[0].parts[0]).toEqual({ type: 'text', text: 'world' });
   });
 
   it('should complete turn', () => {
-    const store = useChatStore.getState();
-    store.clearTurns();
-    const turnId = store.startTurn('hello');
-    store.completeTurn(turnId);
-    expect(store.turns[0].isComplete).toBe(true);
-    expect(store.isGenerating).toBe(false);
+    const turnId = useChatStore.getState().startTurn('hello');
+    useChatStore.getState().completeTurn(turnId);
+
+    const state = useChatStore.getState();
+    expect(state.turns[0].isComplete).toBe(true);
+    expect(state.isGenerating).toBe(false);
   });
 
   it('should switch agent', () => {
-    const store = useChatStore.getState();
-    store.setAgent('plan');
-    expect(store.currentAgent).toBe('plan');
+    useChatStore.getState().setAgent('plan');
+    expect(useChatStore.getState().currentAgent).toBe('plan');
   });
 });

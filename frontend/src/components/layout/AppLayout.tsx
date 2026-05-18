@@ -12,7 +12,10 @@ export const AppLayout: React.FC = () => {
   const { themeName } = useUIStore();
 
   useEffect(() => {
-    const preset = getPresetByName(themeName);
+    let preset = getPresetByName(themeName);
+    if (!preset) {
+      preset = getPresetByName('deep_ocean');
+    }
     if (preset) applyTheme(preset);
   }, [themeName]);
 

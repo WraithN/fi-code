@@ -19,6 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use anyhow::anyhow;
@@ -45,6 +46,25 @@ use super::models::ApiResponse;
 use super::session::HttpSessionManager;
 use super::transport::rpc::{handle_rpc, JsonRpcRequest, JsonRpcResponse};
 use super::transport::sse::SseEvent;
+
+/// 从可执行文件位置向上查找 frontend/dist 目录
+fn find_frontend_dist() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+
+    let candidates = [
+        exe_dir.join("frontend/dist"),
+        exe_dir.join("../frontend/dist"),
+        exe_dir.join("../../frontend/dist"),
+        PathBuf::from("frontend/dist"),
+    ];
+
+    for path in &candidates {
+        if path.join("index.html").exists() {
+            return Some(path.clone());
+        }
+    }
+    None
+}
 
 /// 服务器共享状态
 #[derive(Clone)]
@@ -117,7 +137,12 @@ impl Server {
     }
 
     pub async fn run(self) {
-        let app = Router::new()
+        let frontend_dist = find_frontend_dist();
+        if frontend_dist.is_none() {
+            eprintln!("Warning: frontend/dist not found, serving API only");
+        }
+
+        let mut app = Router::new()
             .route("/rpc", post(handle_rpc_endpoint))
             .route("/chat", post(super::api::chat_api::handle_chat_endpoint))
             .route(
@@ -160,7 +185,18 @@ impl Server {
             .route(
                 "/api/logs/stream",
                 get(crate::server::api::log_api::handle_log_stream),
-            )
+            );
+
+        // 如果找到 frontend/dist，挂载静态文件服务
+        if let Some(dist_path) = frontend_dist {
+            let index_path = dist_path.join("index.html");
+            app = app.fallback_service(
+                tower_http::services::ServeDir::new(&dist_path)
+                    .fallback(tower_http::services::ServeFile::new(&index_path)),
+            );
+        }
+
+        let app = app
             .layer(cors_layer(self.state.config.clone()))
             .with_state(self.state.clone());
 

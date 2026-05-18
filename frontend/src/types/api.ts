@@ -20,6 +20,7 @@ export interface FileEntry {
   name: string;
   is_dir: boolean;
   depth: number;
+  children?: FileEntry[];
 }
 
 export interface FileTreeResult {
@@ -39,6 +40,13 @@ export interface ProviderItem {
   name: string;
   provider_type: string;
   models: ModelItem[];
+}
+
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  module: string;
+  message: string;
 }
 
 export interface CommandMeta {
