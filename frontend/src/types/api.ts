@@ -46,27 +46,3 @@ export interface CommandMeta {
   description: string;
   args_hint: string | null;
 }
-
-export interface SseContentEvent {
-  type: 'content';
-  text: string;
-}
-
-export interface SseDoneEvent {
-  type: 'done';
-  session_id: string;
-}
-
-export interface SseErrorEvent {
-  type: 'error';
-  message: string;
-}
-
-export type SseEvent = SseContentEvent | SseDoneEvent | SseErrorEvent;
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-}
