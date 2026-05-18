@@ -1,12 +1,21 @@
 import { SseEvent } from '../types/sse';
 import { AgentType } from '../types/agent';
-import { ApiResponse } from '../types/api';
+import { ApiResponse, FileTreeResult, LogEntry } from '../types/api';
+
+function detectBaseUrl(): string {
+  // Tauri Desktop 环境使用本地 Sidecar 地址
+  if ((window as any).__TAURI_INTERNALS__) {
+    return 'http://127.0.0.1:4040';
+  }
+  // 浏览器/Web 模式使用当前页面 origin
+  return window.location.origin;
+}
 
 export class ApiClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = 'http://localhost:4040') {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+  constructor(baseUrl?: string) {
+    this.baseUrl = (baseUrl ?? detectBaseUrl()).replace(/\/$/, '');
   }
 
   setBaseUrl(url: string): void {
@@ -47,6 +56,48 @@ export class ApiClient {
     const data: ApiResponse<T> = await resp.json();
     if (!data.success || data.data === null) throw new Error(data.error || 'API returned no data');
     return data.data;
+  }
+
+  async getFileTree(path: string = ''): Promise<FileTreeResult> {
+    const query = path ? `?path=${encodeURIComponent(path)}` : '';
+    return this.get<FileTreeResult>(`/api/files${query}`);
+  }
+
+  async getLogs(limit: number = 200): Promise<LogEntry[]> {
+    return this.get<LogEntry[]>(`/api/logs?limit=${limit}`);
+  }
+
+  async *subscribeLogs(): AsyncGenerator<LogEntry, void, unknown> {
+    const resp = await fetch(`${this.baseUrl}/api/logs/stream`);
+    if (!resp.ok) throw new Error(`Log stream failed: ${resp.status}`);
+
+    const reader = resp.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const jsonStr = trimmed.slice(6);
+          try {
+            const entry = JSON.parse(jsonStr) as LogEntry;
+            yield entry;
+          } catch {
+            console.warn('[Log SSE] Invalid JSON:', jsonStr.slice(0, 200));
+          }
+        }
+      }
+    }
   }
 
   async *chatStream(
