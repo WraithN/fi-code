@@ -58,6 +58,10 @@ pub struct Args {
     #[arg(short = 'w', long = "workspace", value_name = "PATH")]
     pub workspace: Option<PathBuf>,
 
+    /// Start web UI server (default port: 4040)
+    #[arg(short = 'W', long = "web", value_name = "PORT", num_args = 0..=1)]
+    pub web: Option<Option<u16>>,
+
     /// Specify the agent type (build or plan)
     #[arg(long, default_value = "build")]
     pub agent: String,

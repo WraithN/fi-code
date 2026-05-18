@@ -47,6 +47,59 @@ pub enum EntryOutcome {
     StartTui { port: Option<u16> },
 }
 
+async fn start_web_mode(port: u16) -> anyhow::Result<EntryOutcome> {
+    use anyhow::Context;
+
+    // 设置工作目录
+    let workspace = dirs::home_dir().context("无法获取用户主目录")?;
+    if !workspace.exists() {
+        std::fs::create_dir_all(&workspace)
+            .with_context(|| format!("无法创建工作目录: {:?}", workspace))?;
+    }
+    let workspace = workspace
+        .canonicalize()
+        .with_context(|| format!("无法解析工作目录: {:?}", workspace))?;
+    fi_code_core::utils::workspace::set_workspace(workspace.clone());
+    fi_code_core::skills::init_skills();
+
+    let config = Arc::new(std::sync::RwLock::new(fi_code_core::config::Config::load()?));
+    let _watcher = fi_code_core::config::config::spawn_watcher(Arc::clone(&config))?;
+
+    // 初始化 MCP Manager
+    {
+        let cfg = config.read().map_err(|_| anyhow::anyhow!("配置锁中毒"))?;
+        if let Some(mcp_config) = &cfg.mcp {
+            match fi_code_core::mcp::manager::McpManager::from_config(mcp_config).await {
+                Ok(manager) => {
+                    fi_code_core::tools::set_mcp_manager(std::sync::Arc::new(manager));
+                }
+                Err(e) => {
+                    eprintln!("Warning: MCP initialization failed: {}", e);
+                }
+            }
+        }
+    }
+
+    let provider = fi_code_core::provider::Provider::new(Arc::clone(&config))?;
+    fi_code_core::tools::set_task_provider(Arc::new(std::sync::RwLock::new(provider.clone())));
+    let provider = Arc::new(std::sync::RwLock::new(provider));
+
+    // 启动 Server
+    let server = fi_code_core::server::Server::new(provider, config, Some(port));
+
+    // 打开浏览器
+    let url = format!("http://localhost:{}", port);
+    if let Err(e) = open::that(&url) {
+        eprintln!("Warning: failed to open browser: {}", e);
+        println!("Please open {} manually", url);
+    } else {
+        println!("Opening browser at {} ...", url);
+    }
+
+    server.run().await;
+    Ok(EntryOutcome::Completed)
+}
+
 pub async fn run() -> Result<EntryOutcome> {
     let args = Args::parse();
 
@@ -87,6 +140,12 @@ pub async fn run() -> Result<EntryOutcome> {
                 return Ok(EntryOutcome::StartTui { port: None });
             }
         }
+    }
+
+    // -W / --web 模式
+    if let Some(port_opt) = args.web {
+        let port = port_opt.unwrap_or(4040);
+        return start_web_mode(port).await;
     }
 
     #[cfg(debug_assertions)]
