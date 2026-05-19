@@ -313,6 +313,26 @@ async fn run_agent_chat(
                 "[Server] on_tool_event callback | {:?}",
                 std::mem::discriminant(&event)
             );
+            // 当 Usage Part 到达时，同步发送 CompressionStatus 更新上下文比例
+            if let SseEvent::Part {
+                part: fi_code_shared::dto::Part::Usage {
+                    input_tokens, ..
+                },
+            } = &event
+            {
+                let limit = crate::agent::compression::get_context_limit();
+                let ratio = if limit > 0 {
+                    ((*input_tokens as f64 / limit as f64) * 100.0).min(100.0) as u8
+                } else {
+                    0
+                };
+                let _ = sse_sender_for_tools.try_send(SseEvent::CompressionStatus {
+                    is_compressing: false,
+                    progress: 0,
+                    context_ratio: ratio,
+                    summary: None,
+                });
+            }
             let _ = sse_sender_for_tools.try_send(event);
         }));
     log_info!(
