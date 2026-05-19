@@ -965,7 +965,7 @@ impl TuiApp {
                     self.status_bar
                         .set_tokens(*input_tokens as usize, *output_tokens as usize);
                     self.status_bar
-                        .set_ctx_tokens(*input_tokens as usize, 128_000);
+                        .set_ctx_tokens(*input_tokens as usize, DEFAULT_CTX_LIMIT);
                     self.status_bar
                         .set_latency(*latency_ms);
                 }
