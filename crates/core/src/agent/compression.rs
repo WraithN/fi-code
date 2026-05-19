@@ -260,13 +260,33 @@ async fn run_compression_subagent<C: AIClient + ?Sized>(
 // 增量压缩执行
 // ---------------------------------------------------------------------------
 
+/// 计算当前上下文占用比例（百分比）。
+fn calculate_context_ratio(loop_state: &LoopState) -> u8 {
+    let limit = get_context_limit();
+    let current = estimate_total_tokens(&loop_state.messages);
+    if limit == 0 { return 0; }
+    ((current as f64 / limit as f64) * 100.0).min(100.0) as u8
+}
+
 /// 对会话历史执行增量压缩，返回新的 Summary 消息。
 pub async fn compress_history<C: AIClient + ?Sized>(
     loop_state: &LoopState,
     client: &C,
+    sse_sender: &crate::server::transport::sse::SseSender,
 ) -> Result<Message> {
     let range = find_compression_range(&loop_state.messages)
         .ok_or_else(|| anyhow::anyhow!("No compressible range found"))?;
+
+    let original_count = loop_state.messages.len();
+    let original_tokens = estimate_total_tokens(&loop_state.messages);
+
+    // 发送压缩开始事件
+    let _ = sse_sender.send(crate::server::transport::sse::SseEvent::CompressionStatus {
+        is_compressing: true,
+        progress: 0,
+        context_ratio: calculate_context_ratio(loop_state),
+        summary: None,
+    }).await;
 
     let (start, end) = range;
 
@@ -279,6 +299,32 @@ pub async fn compress_history<C: AIClient + ?Sized>(
     to_compress.extend(loop_state.messages[start..=end].iter().cloned());
 
     let summary_text = run_compression_subagent(client, to_compress).await?;
+
+    let token_savings = if original_tokens > 0 {
+        let saved = original_tokens.saturating_sub(estimate_tokens(&summary_text));
+        ((saved as f64 / original_tokens as f64) * 100.0) as u8
+    } else { 0 };
+
+    let display_text = format!(
+        "🗜️ 上下文已压缩 | {}条消息 → 1条摘要 | 节省 {}% tokens",
+        original_count, token_savings
+    );
+
+    // 发送压缩完成事件
+    let _ = sse_sender.send(crate::server::transport::sse::SseEvent::CompressionStatus {
+        is_compressing: false,
+        progress: 100,
+        context_ratio: calculate_context_ratio(loop_state),
+        summary: Some(display_text.clone()),
+    }).await;
+
+    // 在聊天流中插入系统通知
+    let _ = sse_sender.send(crate::server::transport::sse::SseEvent::Part {
+        part: Part::SystemNotice {
+            kind: "compression_done".to_string(),
+            content: display_text,
+        },
+    }).await;
 
     let session_id = loop_state
         .messages
