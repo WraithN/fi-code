@@ -929,7 +929,23 @@ impl TuiApp {
                     SseEvent::AgentInfo { agent_type, agent_name } => {
                         log_info!("[Client] SSE AgentInfo | type={:?} name={}", agent_type, agent_name);
                     }
-                    SseEvent::CompressionStatus { is_compressing, progress, context_ratio, .. } => {
+                    SseEvent::CompressionStatus {
+                        is_compressing,
+                        progress,
+                        context_ratio,
+                        summary,
+                    } => {
+                        self.status_bar.set_compressing(*is_compressing);
+                        self.status_bar.set_compression_progress(*progress);
+                        if *context_ratio > 0 {
+                            let current = (self.status_bar.ctx_limit() as f64
+                                * (*context_ratio as f64 / 100.0))
+                                as usize;
+                            self.status_bar.set_ctx_tokens(current, self.status_bar.ctx_limit());
+                        }
+                        if !is_compressing && summary.is_some() {
+                            self.chat.add_system_message(summary.as_ref().unwrap());
+                        }
                         log_debug!("[Client] SSE CompressionStatus | compressing={} | progress={}% | ratio={}%", is_compressing, progress, context_ratio);
                     }
                 }

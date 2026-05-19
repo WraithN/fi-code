@@ -58,6 +58,8 @@ pub struct StatusBar {
     ctx_current: usize, // 当前上下文 Token 数
     ctx_limit: usize,   // 上下文窗口上限
     latency_ms: u32,    // 上次请求延迟（毫秒）
+    is_compressing: bool,
+    compression_progress: u8,
 }
 
 use fi_code_shared::constants::*;
@@ -77,6 +79,8 @@ impl StatusBar {
             ctx_current: 0,
             ctx_limit: DEFAULT_CTX_LIMIT,
             latency_ms: 0,
+            is_compressing: false,
+            compression_progress: 0,
         }
     }
 
@@ -134,6 +138,21 @@ impl StatusBar {
         self.ctx_limit = limit;
     }
 
+    /// 返回上下文窗口上限。
+    pub fn ctx_limit(&self) -> usize {
+        self.ctx_limit
+    }
+
+    /// 设置压缩状态。
+    pub fn set_compressing(&mut self, compressing: bool) {
+        self.is_compressing = compressing;
+    }
+
+    /// 设置压缩进度。
+    pub fn set_compression_progress(&mut self, progress: u8) {
+        self.compression_progress = progress;
+    }
+
     /// 更新上次请求延迟。
     pub fn set_latency(&mut self, latency_ms: u32) {
         self.latency_ms = latency_ms;
@@ -172,21 +191,25 @@ impl StatusBar {
     }
 
     /// 渲染 CTX 进度条字符串（10 格）。
-    /// Running 状态下使用动画填充，否则按实际上下文占用率计算。
+    /// 始终按实际上下文占用率计算；压缩中显示压缩进度。
     fn render_ctx_bar(&self) -> String {
-        let filled = match self.progress_state {
-            ProgressState::Running => self.current_filled().min(CTX_BAR_WIDTH),
-            _ => {
-                if self.ctx_limit == 0 {
-                    0
-                } else {
-                    let ratio = self.ctx_current as f64 / self.ctx_limit as f64;
-                    ((ratio * CTX_BAR_WIDTH as f64).ceil() as usize).min(CTX_BAR_WIDTH)
-                }
-            }
+        let ratio = if self.ctx_limit == 0 {
+            0.0
+        } else {
+            (self.ctx_current as f64 / self.ctx_limit as f64).min(1.0)
         };
+        let filled = ((ratio * CTX_BAR_WIDTH as f64).ceil() as usize).min(CTX_BAR_WIDTH);
         let empty = CTX_BAR_WIDTH - filled;
-        format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+        let pct = (ratio * 100.0) as u8;
+
+        if self.is_compressing {
+            let c_filled = ((self.compression_progress as f64 / 100.0) * CTX_BAR_WIDTH as f64)
+                .ceil() as usize;
+            let c_empty = CTX_BAR_WIDTH - c_filled;
+            format!("[{}{}] 🗜️", "█".repeat(c_filled), "░".repeat(c_empty))
+        } else {
+            format!("[{}{}] {}%", "█".repeat(filled), "░".repeat(empty), pct)
+        }
     }
 
     /// 根据上下文占用率返回进度条颜色。
@@ -196,9 +219,9 @@ impl StatusBar {
         } else {
             0.0
         };
-        let color = if ratio > 0.8 {
+        let color = if ratio > 0.85 {
             theme.error
-        } else if ratio > 0.5 {
+        } else if ratio > 0.60 {
             theme.warning
         } else {
             theme.success
@@ -462,7 +485,7 @@ mod tests {
     fn test_ctx_bar_idle() {
         let bar = StatusBar::new();
         let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[░░░░░░░░░░]");
+        assert_eq!(pb, "[░░░░░░░░░░] 0%");
     }
 
     #[test]
@@ -470,58 +493,36 @@ mod tests {
         let mut bar = StatusBar::new();
         bar.set_ctx_tokens(64_000, 128_000); // 50%
         let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[█████░░░░░]");
+        assert_eq!(pb, "[█████░░░░░] 50%");
     }
 
     #[test]
     fn test_ctx_bar_running() {
+        // Running 状态下仍按 ctx 占用率计算，不再使用动画
         let mut bar = StatusBar::new();
         bar.set_generating(true);
-        bar.on_tick(); // tick = 1, filled = 10 (capped to 10)
+        bar.set_ctx_tokens(64_000, 128_000); // 50%
         let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[██████████]");
-
-        // 前进到 tick = 5, filled = 9
-        for _ in 0..4 {
-            bar.on_tick();
-        }
-        let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[█████████░]");
+        assert_eq!(pb, "[█████░░░░░] 50%");
     }
 
     #[test]
-    fn test_ctx_bar_capped_at_width() {
+    fn test_ctx_bar_compressing() {
         let mut bar = StatusBar::new();
-        bar.set_generating(true);
-        // tick=40 时 filled = 5
-        for _ in 0..40 {
-            bar.on_tick();
-        }
+        bar.set_ctx_tokens(108_000, 128_000); // ~84%
+        bar.set_compressing(true);
+        bar.set_compression_progress(45);
         let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[█████░░░░░]");
-
-        // tick=42 时 filled = 14 (capped to 10)
-        bar.on_tick();
-        bar.on_tick();
-        let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[██████████]");
+        assert_eq!(pb, "[█████░░░░░] 🗜️");
     }
 
     #[test]
     fn test_ctx_bar_paused() {
         let mut bar = StatusBar::new();
-        bar.set_generating(true);
-        for _ in 0..5 {
-            bar.on_tick();
-        }
-        // tick=5, filled=9 (capped to 9 in 10-width bar)
-        bar.set_generating(false); // 暂停，定格
-
-        // 即使继续 tick，也不应前进（因为已暂停，且空闲时按 ctx 占用率计算）
-        bar.on_tick();
-        bar.on_tick();
+        bar.set_generating(false);
+        bar.set_ctx_tokens(32_000, 128_000); // 25%
         let pb = bar.render_ctx_bar();
-        assert_eq!(pb, "[░░░░░░░░░░]"); // 空闲时按 ctx 计算，初始为 0
+        assert_eq!(pb, "[███░░░░░░░] 25%");
     }
 
     #[test]
@@ -662,15 +663,15 @@ mod tests {
         let theme = Theme::deep_ocean();
 
         let mut bar = StatusBar::new();
-        bar.set_ctx_tokens(10_000, 128_000); // < 50%
+        bar.set_ctx_tokens(10_000, 128_000); // < 60%
         let style = bar.ctx_bar_style(&theme);
         assert_eq!(style.fg, Some(theme.success));
 
-        bar.set_ctx_tokens(70_000, 128_000); // 50-80%
+        bar.set_ctx_tokens(80_000, 128_000); // 60-85%
         let style = bar.ctx_bar_style(&theme);
         assert_eq!(style.fg, Some(theme.warning));
 
-        bar.set_ctx_tokens(110_000, 128_000); // > 80%
+        bar.set_ctx_tokens(110_000, 128_000); // > 85%
         let style = bar.ctx_bar_style(&theme);
         assert_eq!(style.fg, Some(theme.error));
     }
