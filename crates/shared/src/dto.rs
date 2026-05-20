@@ -115,6 +115,11 @@ pub enum Part {
         latency_ms: u32,
         cost: Option<f64>,
     },
+    /// 代码块内容，用于展示文件内容和 diff，支持语法高亮
+    CodeBlock {
+        language: String,
+        code: String,
+    },
     /// 系统通知（如压缩完成、Agent 切换等）
     #[serde(rename = "system_notice")]
     SystemNotice {
