@@ -35,7 +35,6 @@
 
 use anyhow::Result;
 
-use crate::agent::turn_logger::{TurnLogEntry, TurnLogger};
 use crate::agent::PromptBuilder;
 use crate::log_block;
 use crate::log_debug;
@@ -313,7 +312,15 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
     on_text: &mut Option<Box<dyn FnMut(&str) + Send>>,
     on_tool_event: &mut Option<Box<dyn FnMut(crate::server::transport::sse::SseEvent) + Send>>,
     sse_sender: Option<&crate::server::transport::sse::SseSender>,
+    // 父级 trace context（来自 ChatSpan）：用于 OTel parent-span 传播
+    parent_cx: Option<&opentelemetry::Context>,
 ) -> Result<bool> {
+    use crate::observability::otel;
+
+    // 启动本轮 TurnSpan，所有子 span（LLM / Tool / Compression）都以此为父
+    let turn_span = otel::start_turn_span(parent_cx, state.turn_count);
+    let turn_cx = turn_span.context();
+
     // 从当前消息历史中继承 session_id，确保工具结果消息与对话属于同一会话
     let session_id = state
         .messages
@@ -420,6 +427,16 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
         llm_messages.len()
     );
 
+    // 启动 LlmGeneration span：以 turn_cx 为父，作为 Langfuse generation observation
+    // TODO Phase 4 polish：model_name / provider_name 通过 AIClient trait 透传，目前用占位符
+    let llm_messages_json = serde_json::to_string(&llm_messages).unwrap_or_default();
+    let llm_gen = otel::start_llm_generation(
+        Some(&turn_cx),
+        "unknown",
+        "unknown",
+        &llm_messages_json,
+    );
+
     if let Err(e) = client
         .stream_message(&system_prompt, &llm_messages, &schema, &mut |chunk| {
             // 实时转发文本内容和系统通知，实现真流式
@@ -440,21 +457,32 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
         })
         .await
     {
-        TurnLogger::global().log_turn(TurnLogEntry {
-            timestamp: chrono::Local::now().to_rfc3339(),
-            session_id: turn.session_id.clone(),
-            turn_index: state.turn_count,
-            finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-            token_usage: turn.turn_usage,
-            content_blocks: turn.content_blocks.clone(),
-            tool_results: vec![],
-            messages_snapshot: state.messages.clone(),
-            wave_marker: Some(turn.wave_marker.clone()),
-            transition_reason: state.transition_reason.clone(),
-            error: Some(e.to_string()),
-        });
+        // 记录错误到 LLM generation span（drop 时自动结束）
+        log_error!("[Agent] stream_message failed | turn={} | err={}", state.turn_count, e);
         return Err(e);
     }
+
+    // LLM 调用完成：上报 finish_reason / token_usage 到 generation span
+    if let Some(ref fr) = turn.finish_reason {
+        llm_gen.record_finish_reason(&format!("{:?}", fr));
+    }
+    let total_tok = turn.turn_usage.prompt_tokens + turn.turn_usage.completion_tokens;
+    llm_gen.record_usage(
+        turn.turn_usage.prompt_tokens,
+        turn.turn_usage.completion_tokens,
+        total_tok,
+    );
+    // 聚合 assistant 文本作为输出（脱敏在 facade 内部完成）
+    let completion_text: String = turn
+        .content_blocks
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    llm_gen.record_output(&completion_text);
 
     log_info!(
         "[Agent] LLM stream complete | turn={} | blocks={} | turn_usage={:?}",
@@ -491,19 +519,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
             "[Agent] run_one_turn end | no tool use | finish_reason={:?}",
             turn.finish_reason
         );
-        TurnLogger::global().log_turn(TurnLogEntry {
-            timestamp: chrono::Local::now().to_rfc3339(),
-            session_id: turn.session_id.clone(),
-            turn_index: state.turn_count,
-            finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-            token_usage: turn.turn_usage,
-            content_blocks: turn.content_blocks.clone(),
-            tool_results: vec![],
-            messages_snapshot: state.messages.clone(),
-            wave_marker: Some(turn.wave_marker.clone()),
-            transition_reason: state.transition_reason.clone(),
-            error: None,
-        });
+        // OTel：TurnSpan 在函数返回时 drop，自动 end
         return Ok(false);
     }
 
@@ -535,19 +551,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
                 })
                 .await
             {
-                TurnLogger::global().log_turn(TurnLogEntry {
-                    timestamp: chrono::Local::now().to_rfc3339(),
-                    session_id: turn.session_id.clone(),
-                    turn_index: state.turn_count,
-                    finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-                    token_usage: turn.turn_usage,
-                    content_blocks: turn.content_blocks.clone(),
-                    tool_results: vec![],
-                    messages_snapshot: state.messages.clone(),
-                    wave_marker: Some(turn.wave_marker.clone()),
-                    transition_reason: state.transition_reason.clone(),
-                    error: Some(e.to_string()),
-                });
+                log_error!("[Agent] MCP two-step stream failed | err={}", e);
                 return Err(e);
             }
 
@@ -580,8 +584,15 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
     }
 
     let is_aggressive = crate::agent::compression::should_compress(&state.messages);
-    // 执行所有工具调用，并收集结果
-    let tool_results = execute_tool_calls(&turn.content_blocks, agent_type, on_tool_event, is_aggressive).await;
+    // 执行所有工具调用，并收集结果。传入 turn_cx 让每个工具的 ToolSpan 都挂在本 Turn 下
+    let tool_results = execute_tool_calls(
+        &turn.content_blocks,
+        agent_type,
+        on_tool_event,
+        is_aggressive,
+        Some(&turn_cx),
+    )
+    .await;
     if tool_results.is_empty() {
         turn.update_wave_marker(
             &mut state.messages,
@@ -590,19 +601,6 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
         );
         state.transition_reason = None;
         log_info!("[Agent] run_one_turn end | tool_use finish but no results");
-        TurnLogger::global().log_turn(TurnLogEntry {
-            timestamp: chrono::Local::now().to_rfc3339(),
-            session_id: turn.session_id.clone(),
-            turn_index: state.turn_count,
-            finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-            token_usage: turn.turn_usage,
-            content_blocks: turn.content_blocks.clone(),
-            tool_results: vec![],
-            messages_snapshot: state.messages.clone(),
-            wave_marker: Some(turn.wave_marker.clone()),
-            transition_reason: state.transition_reason.clone(),
-            error: None,
-        });
         return Ok(false);
     }
 
@@ -646,43 +644,14 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
         }
 
         state.transition_reason = Some("direct_output".to_string());
+        // 在 TurnSpan 上记录迁移原因，便于 Langfuse 查看
+        turn_span.set_transition_reason("direct_output");
         log_info!("[Agent] run_one_turn end | direct output, no turn 2");
-        TurnLogger::global().log_turn(TurnLogEntry {
-            timestamp: chrono::Local::now().to_rfc3339(),
-            session_id: turn.session_id.clone(),
-            turn_index: state.turn_count,
-            finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-            token_usage: turn.turn_usage,
-            content_blocks: turn.content_blocks.clone(),
-            tool_results: crate::agent::turn_logger::build_tool_result_logs(
-                &turn.content_blocks,
-                &tool_results,
-            ),
-            messages_snapshot: state.messages.clone(),
-            wave_marker: Some(turn.wave_marker.clone()),
-            transition_reason: state.transition_reason.clone(),
-            error: None,
-        });
         return Ok(false);
     }
 
     // 记录日志必须在 tool_results 被 move 进 messages 之前
-    TurnLogger::global().log_turn(TurnLogEntry {
-        timestamp: chrono::Local::now().to_rfc3339(),
-        session_id: turn.session_id.clone(),
-        turn_index: state.turn_count,
-        finish_reason: turn.finish_reason.as_ref().map(|f| format!("{:?}", f)),
-        token_usage: turn.turn_usage,
-        content_blocks: turn.content_blocks.clone(),
-        tool_results: crate::agent::turn_logger::build_tool_result_logs(
-            &turn.content_blocks,
-            &tool_results,
-        ),
-        messages_snapshot: state.messages.clone(),
-        wave_marker: Some(turn.wave_marker.clone()),
-        transition_reason: state.transition_reason.clone(),
-        error: None,
-    });
+    // OTel：tool_results 的每条已被各自 ToolSpan 记录（execute_tool_calls 内部），此处无需再写
 
     // 将工具结果封装为 User 消息回传（符合 OpenAI / Anthropic API 的角色交替要求）
     state
@@ -691,6 +660,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
 
     state.turn_count += 1;
     state.transition_reason = Some("tool_result".to_string());
+    turn_span.set_transition_reason("tool_result");
 
     turn.update_wave_marker(&mut state.messages, None, &state.token_usage);
 
@@ -754,6 +724,8 @@ pub async fn agent_loop<C: AIClient + ?Sized>(
     on_text: &mut Option<Box<dyn FnMut(&str) + Send>>,
     on_tool_event: &mut Option<Box<dyn FnMut(crate::server::transport::sse::SseEvent) + Send>>,
     sse_sender: Option<&crate::server::transport::sse::SseSender>,
+    // 父级 trace context（通常来自 ChatSpan）：所有 Turn 都以此为父
+    parent_cx: Option<&opentelemetry::Context>,
 ) -> Result<()> {
     let mut retry_count = 0u32;
 
@@ -770,7 +742,7 @@ pub async fn agent_loop<C: AIClient + ?Sized>(
         let token_usage_before = state.token_usage;
         let transition_reason_before = state.transition_reason.clone();
 
-        match run_one_turn(client, state, agent_type, on_text, on_tool_event, sse_sender).await {
+        match run_one_turn(client, state, agent_type, on_text, on_tool_event, sse_sender, parent_cx).await {
             Ok(should_continue) => {
                 retry_count = 0;
                 if !should_continue {
@@ -830,5 +802,18 @@ pub async fn agent_loop<C: AIClient + ?Sized>(
         state.turn_count,
         state.transition_reason
     );
+
+    // 在 ChatSpan 上记录最终消息快照，便于 Langfuse 检视完整对话
+    if crate::observability::is_enabled() {
+        if let Some(cx) = parent_cx {
+            use opentelemetry::trace::{Span, TraceContextExt};
+            let snapshot = serde_json::to_string(&state.messages).unwrap_or_default();
+            cx.span().set_attribute(opentelemetry::KeyValue::new(
+                crate::observability::attrs::FI_MESSAGES_SNAPSHOT,
+                snapshot,
+            ));
+        }
+    }
+
     Ok(())
 }
