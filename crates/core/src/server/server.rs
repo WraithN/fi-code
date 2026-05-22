@@ -346,6 +346,7 @@ pub mod test_helpers {
                 api_token: Some("test-token".to_string()),
                 allowed_origins: None,
             }),
+            observability: None,
             source_path: Some("/test/config.json".to_string()),
         }
     }

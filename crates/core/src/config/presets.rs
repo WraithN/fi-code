@@ -65,6 +65,7 @@ mod tests {
             provider: HashMap::new(),
             mcp: None,
             server: None,
+            observability: None,
             source_path: None,
         };
         merge_presets(&mut config);
@@ -99,6 +100,7 @@ mod tests {
             },
             mcp: None,
             server: None,
+            observability: None,
             source_path: None,
         };
         merge_presets(&mut config);
@@ -134,6 +136,7 @@ mod tests {
             },
             mcp: None,
             server: None,
+            observability: None,
             source_path: None,
         };
         merge_presets(&mut config);

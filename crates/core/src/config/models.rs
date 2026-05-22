@@ -32,9 +32,37 @@ pub struct Config {
     pub provider: HashMap<String, ProviderConfig>,
     pub mcp: Option<HashMap<String, McpServerConfig>>,
     pub server: Option<ServerConfig>,
+    // 可观测性原始配置（来自 config.json 的 observability 节点），运行时由
+    // observability::config::ObservabilityConfig::resolve 进一步与环境变量合并
+    #[serde(default)]
+    pub observability: Option<ObservabilityRawConfig>,
     /// 加载此配置的文件路径（运行时填充，不序列化）
     #[serde(skip)]
     pub source_path: Option<String>,
+}
+
+// observability 节点原始 schema（仅做反序列化映射，不含业务行为）
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct ObservabilityRawConfig {
+    #[serde(default)]
+    pub langfuse: Option<LangfuseRawConfig>,
+}
+
+// Langfuse 子配置原始 schema
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct LangfuseRawConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default, rename = "publicKey")]
+    pub public_key: Option<String>,
+    #[serde(default, rename = "secretKey")]
+    pub secret_key: Option<String>,
+    #[serde(default)]
+    pub environment: Option<String>,
+    #[serde(default)]
+    pub release: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
