@@ -35,5 +35,13 @@ struct TuiArgs {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = TuiArgs::parse();
-    fi_code_tui::run_tui_mode(args.port).await
+
+    // 初始化可观测性（失败不阻塞 TUI 启动，仅 warn）
+    if let Ok(cfg) = fi_code_core::config::Config::load() {
+        let _ = fi_code_core::observability::init(&cfg);
+    }
+
+    let result = fi_code_tui::run_tui_mode(args.port).await;
+    fi_code_core::observability::shutdown();
+    result
 }

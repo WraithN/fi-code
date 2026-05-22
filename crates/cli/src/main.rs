@@ -26,8 +26,18 @@ use entry::{run, EntryOutcome};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    match run().await? {
+    // 初始化可观测性：失败仅 warn（CLI 模式宽松，不阻塞用户工作流）
+    // 注意：observability::init 内部已 log_warn 提示，此处直接尝试初始化
+    if let Ok(cfg) = fi_code_core::config::Config::load() {
+        let _ = fi_code_core::observability::init(&cfg);
+    }
+
+    let result = match run().await? {
         EntryOutcome::Completed => Ok(()),
         EntryOutcome::StartTui { port } => fi_code_tui::run_tui_mode(port).await,
-    }
+    };
+
+    // 优雅退出时 flush 残留 span
+    fi_code_core::observability::shutdown();
+    result
 }

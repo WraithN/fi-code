@@ -28,5 +28,20 @@ use std::sync::{Arc, RwLock};
 async fn main() {
     let config = Arc::new(RwLock::new(Config::load().unwrap()));
     let provider = Arc::new(RwLock::new(Provider::new(Arc::clone(&config)).unwrap()));
-    Server::new(provider, config, None).run().await;
+
+    // 初始化可观测性子系统：失败则致命退出（保证 trace 数据完整性）
+    {
+        let cfg = config.read().expect("config read");
+        if let Err(e) = fi_code_core::observability::init(&cfg) {
+            eprintln!("[fatal] observability init failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    // 使用 tokio::select 以便在 ctrl_c 时优雅关闭，flush 残留 span
+    tokio::select! {
+        _ = Server::new(provider, config, None).run() => {},
+        _ = tokio::signal::ctrl_c() => {},
+    }
+    fi_code_core::observability::shutdown();
 }
