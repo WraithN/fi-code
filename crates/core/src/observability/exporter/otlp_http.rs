@@ -19,5 +19,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// OTLP HTTP 远程上报导出器占位实现
-pub fn placeholder() {}
+//! OtlpHttpExporter：薄封装 opentelemetry-otlp 的 HTTP/protobuf exporter。
+//! 当前为 stub，仅满足 CompositeSpanExporter 编译；Task 2.3 会替换为真实实现。
+
+use futures::future::BoxFuture;
+use opentelemetry_sdk::export::trace::{ExportResult, SpanData, SpanExporter};
+
+/// OTLP HTTP 上报导出器（stub）。
+#[derive(Debug)]
+pub struct OtlpHttpExporter;
+
+impl OtlpHttpExporter {
+    /// 占位构造函数：真实实现见 Task 2.3。
+    pub fn new(_endpoint: &str, _public_key: &str, _secret_key: &str) -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl SpanExporter for OtlpHttpExporter {
+    fn export(&mut self, _batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
+        Box::pin(async { Ok(()) })
+    }
+}
