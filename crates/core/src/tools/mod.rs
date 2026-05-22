@@ -1098,6 +1098,15 @@ pub async fn execute_tool_calls(
                 };
                 let (action, risk, reason) = crate::permission::PermissionAction::match_action(&name, &input);
 
+                // 启动 ToolSpan：以 Turn 为父，记录 tool_name / id / args
+                // 必须在权限检查之前启动，以便在 Ask 流程中调用 add_permission_event 记录用户决策事件
+                let tool_span = crate::observability::otel::start_tool_span(
+                    parent_cx_cloned.as_ref(),
+                    &name,
+                    &id,
+                    &serde_json::to_string(&arguments).unwrap_or_default(),
+                );
+
                 match action {
                     crate::permission::PermissionAction::Deny => {
                         let error_msg = format!("Permission denied: {}", reason);
@@ -1134,11 +1143,23 @@ pub async fn execute_tool_calls(
                                     });
                                 }
                             }
+                            // 记录权限询问开始时间，用于上报到 ToolSpan 的 permission_ask 事件
+                            let ask_start = std::time::Instant::now();
                             match crate::permission::wait_permission_response(&id, &name, risk, &reason).await {
                                 Ok(true) => {
+                                    tool_span.add_permission_event(
+                                        "approved",
+                                        true,
+                                        ask_start.elapsed().as_millis() as u64,
+                                    );
                                     log_debug!("execute_tool_call approved | name={} | id={}", name, id);
                                 }
                                 Ok(false) => {
+                                    tool_span.add_permission_event(
+                                        "rejected",
+                                        false,
+                                        ask_start.elapsed().as_millis() as u64,
+                                    );
                                     let error_msg = "Permission denied: user rejected".to_string();
                                     log_debug!("execute_tool_call rejected | name={} | id={}", name, id);
                                     let error_part = Part::ToolError {
@@ -1157,6 +1178,11 @@ pub async fn execute_tool_calls(
                                     return vec![error_part];
                                 }
                                 Err(e) => {
+                                    tool_span.add_permission_event(
+                                        "timeout",
+                                        false,
+                                        ask_start.elapsed().as_millis() as u64,
+                                    );
                                     let error_msg = format!("Permission error: {}", e);
                                     log_debug!("execute_tool_call permission error | name={} | err={}", name, e);
                                     let error_part = Part::ToolError {
@@ -1193,15 +1219,9 @@ pub async fn execute_tool_calls(
 
                 log_info!("calling tool: ${}", name);
                 log_debug!("execute_tool_call | name={} | args={}", name, arguments);
-                // 启动 ToolSpan：以 Turn 为父，记录 tool_name / id / args
-                let tool_span = crate::observability::otel::start_tool_span(
-                    parent_cx_cloned.as_ref(),
-                    &name,
-                    &id,
-                    &serde_json::to_string(&arguments).unwrap_or_default(),
-                );
                 let (content, is_error, duration_ms) = execute_single_tool_call(&id, &name, &arguments).await;
                 // 记录工具执行结果到 ToolSpan（drop 时自动结束 span）
+                // 注意：tool_span 已在权限检查前启动（位于 input 解析之后），以便 Ask 流程上报 permission_ask 事件
                 tool_span.record_result(&content, is_error);
 
                 // 从参数中提取路径（用于 read/write/edit）

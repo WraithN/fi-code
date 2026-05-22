@@ -353,7 +353,7 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
                 state.turn_count
             );
 
-            match crate::agent::compression::compress_history(state, client, sse_sender).await {
+            match crate::agent::compression::compress_history(state, client, sse_sender, Some(&turn_cx)).await {
                 Ok(summary) => {
                     state.compression_summary = Some(summary);
                     log_info!("[Compression] Completed successfully");
@@ -429,7 +429,12 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
 
     // 启动 LlmGeneration span：以 turn_cx 为父，作为 Langfuse generation observation
     // 通过 AIClient trait 上报真实 model_name / provider_kind，支撑 Langfuse 按模型/厂商聚合
-    let llm_messages_json = serde_json::to_string(&llm_messages).unwrap_or_default();
+    // 关闭可观测性时跳过 JSON 序列化（避免对每轮历史做无意义的 50KB+ 序列化）
+    let llm_messages_json = if crate::observability::is_enabled() {
+        serde_json::to_string(&llm_messages).unwrap_or_default()
+    } else {
+        String::new()
+    };
     let llm_gen = otel::start_llm_generation(
         Some(&turn_cx),
         client.model_name(),

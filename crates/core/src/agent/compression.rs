@@ -39,6 +39,7 @@ use fi_code_shared::constants::*;
 use fi_code_shared::dto::{Message, Part, Role};
 
 use crate::agent::LoopState;
+use crate::observability::otel;
 use crate::provider::base_client::AIClient;
 
 // ---------------------------------------------------------------------------
@@ -101,21 +102,18 @@ pub fn should_compress(messages: &[Message]) -> bool {
 // 工具结果动态压缩
 // ---------------------------------------------------------------------------
 
-const BASH_COMPRESS_THRESHOLD: usize = 30_000;
-const READ_COMPRESS_THRESHOLD: usize = 500 * 1024;
 const MCP_COMPRESS_THRESHOLD_TOKENS: u32 = 25_000;
-const DEFAULT_COMPRESS_THRESHOLD: usize = 500 * 1024;
 
 /// 根据工具名称获取压缩阈值（字节数或字符数）。
 fn get_tool_threshold(tool_name: Option<&str>, is_aggressive: bool) -> Option<usize> {
     let base = match tool_name {
-        Some("bash") => BASH_COMPRESS_THRESHOLD,
-        Some("read") | Some("read_file") => READ_COMPRESS_THRESHOLD,
+        Some("bash") => fi_code_shared::constants::BASH_COMPRESS_THRESHOLD,
+        Some("read") | Some("read_file") => fi_code_shared::constants::READ_COMPRESS_THRESHOLD,
         Some(name) if name.starts_with("mcp:") => {
             // MCP 工具使用 token 估算判断是否需要压缩
             return None;
         }
-        _ => DEFAULT_COMPRESS_THRESHOLD,
+        _ => fi_code_shared::constants::DEFAULT_COMPRESS_THRESHOLD,
     };
     Some(if is_aggressive { base / 3 } else { base })
 }
@@ -144,7 +142,7 @@ pub fn compress_tool_result(content: &str, is_aggressive: bool, tool_name: Optio
         }
     }
 
-    let threshold = get_tool_threshold(tool_name, is_aggressive).unwrap_or(DEFAULT_COMPRESS_THRESHOLD);
+    let threshold = get_tool_threshold(tool_name, is_aggressive).unwrap_or(fi_code_shared::constants::DEFAULT_COMPRESS_THRESHOLD);
     do_compress(content, threshold)
 }
 
@@ -315,11 +313,17 @@ fn calculate_context_ratio(loop_state: &LoopState) -> u8 {
 }
 
 /// 对会话历史执行增量压缩，返回新的 Summary 消息。
+///
+/// `parent_cx`：用于 OTel parent-span 传播，通常传入当前 TurnSpan 的 Context。
 pub async fn compress_history<C: AIClient + ?Sized>(
     loop_state: &LoopState,
     client: &C,
     sse_sender: Option<&crate::server::transport::sse::SseSender>,
+    parent_cx: Option<&opentelemetry::Context>,
 ) -> Result<Message> {
+    // 启动 CompressionSpan：以 TurnSpan 为父，记录压缩前后 token 数；drop 时自动 end span
+    let compression_span = otel::start_compression_span(parent_cx);
+
     let range = find_compression_range(&loop_state.messages)
         .ok_or_else(|| anyhow::anyhow!("No compressible range found"))?;
 
@@ -348,8 +352,12 @@ pub async fn compress_history<C: AIClient + ?Sized>(
 
     let summary_text = run_compression_subagent(client, to_compress).await?;
 
+    // 记录压缩前后的 token 数到 CompressionSpan
+    let after_tokens = estimate_tokens(&summary_text);
+    compression_span.record_ratio(original_tokens, after_tokens);
+
     let token_savings = if original_tokens > 0 {
-        let saved = original_tokens.saturating_sub(estimate_tokens(&summary_text));
+        let saved = original_tokens.saturating_sub(after_tokens);
         ((saved as f64 / original_tokens as f64) * 100.0) as u8
     } else { 0 };
 
@@ -585,7 +593,7 @@ mod tests {
                 Part::ToolUse { id: "t1".to_string(), name: "bash".to_string(), arguments: serde_json::Value::Null },
             ]),
             Message::new("s".to_string(), Role::User, vec![
-                Part::ToolResult { tool_call_id: "t1".to_string(), content: "result".to_string(), duration_ms: None },
+                Part::ToolResult { tool_call_id: "t1".to_string(), content: "result".to_string(), duration_ms: None, metadata: None, for_context_only: false },
             ]),
             Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u2".to_string() }]),
             Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a2".to_string() }]),
@@ -643,7 +651,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(10);
         let sse_sender = crate::server::transport::sse::SseSender::new(tx);
 
-        let result = compress_history(&loop_state, &client, Some(&sse_sender)).await;
+        let result = compress_history(&loop_state, &client, Some(&sse_sender), None).await;
         assert!(result.is_ok());
 
         let summary_msg = result.unwrap();
