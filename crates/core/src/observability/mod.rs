@@ -43,16 +43,36 @@ pub use facade as otel;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::log_warn;
+use crate::observability::config::ObservabilityConfig;
+
 // 全局开关：是否启用可观测性。初始化成功后置为 true
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
-/// 初始化可观测性子系统。当前为 stub，后续任务中填充具体逻辑
-pub fn init(_config: &crate::config::Config) -> anyhow::Result<()> {
-    Ok(())
+/// 初始化可观测性子系统。
+///
+/// 行为：
+/// - 解析 ObservabilityConfig（合并 env + config.json）。
+/// - 调用 `tracer::install`：成功则置 ENABLED=true；
+///   只有"日志目录不可创建"这一种情况会冒泡 Err，其余降级（如 OTLP 失败仅 log_warn）。
+pub fn init(config: &crate::config::Config) -> anyhow::Result<()> {
+    let obs_cfg = ObservabilityConfig::resolve(config);
+    match tracer::install(&obs_cfg) {
+        Ok(()) => {
+            ENABLED.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        Err(e) => {
+            log_warn!("[observability] tracer::install 失败：{}", e);
+            Err(e)
+        }
+    }
 }
 
-/// 关闭可观测性子系统。当前为 no-op
-pub fn shutdown() {}
+/// 关闭可观测性子系统：转发到 tracer::shutdown 以 flush 残留 span。
+pub fn shutdown() {
+    tracer::shutdown();
+}
 
 /// 查询当前是否启用可观测性
 pub fn is_enabled() -> bool {
