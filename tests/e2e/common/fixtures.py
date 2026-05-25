@@ -7,9 +7,9 @@ import pytest
 from pathlib import Path
 from typing import Generator
 
-import constants
-from server import FiCodeServerManager
-from project import TestProjectManager
+from common import constants
+from common.server import FiCodeServerManager
+from common.project import TestProjectManager
 
 
 @pytest.fixture(scope="session")
