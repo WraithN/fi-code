@@ -8,25 +8,12 @@ name = "fi_code_tests"
 path = "lib.rs"
 
 # ============================================
-# E2E 测试 - TUI 相关
+# E2E 测试 - Python 桥接
 # ============================================
 
 [[test]]
-name = "e2e_tui_cli"
-path = "e2e-tui/cli_e2e.rs"
-
-[[test]]
-name = "e2e_tui_basic"
-path = "e2e-tui/tui_e2e.rs"
-
-[[test]]
-name = "e2e_tui_flow"
-path = "e2e-tui/tui_flow_e2e.rs"
-
-# ============================================
-# E2E 测试 - Web 相关 (Rust)
-# ============================================
-# (待添加，使用 reqwest 测试 HTTP API)
+name = "e2e_all"
+path = "e2e/run_e2e.rs"
 
 # ============================================
 # BDD 测试

@@ -9,11 +9,11 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
-# 添加 common 到路径
-sys.path.insert(0, str(Path(__file__).parent / "common"))
+# 添加 e2e 目录到路径，使 common 包可导入
+sys.path.insert(0, str(Path(__file__).parent))
 
-# 从 common 导入 fixtures
-from fixtures import *  # noqa: F401,F403
+# 从 common 包导入 fixtures
+from common.fixtures import *  # noqa: F401,F403
 
 import pytest
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
