@@ -589,7 +589,7 @@ export const InputBox: React.FC = () => {
         </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex items-end gap-3">
         <div className="flex-1 relative">
           <textarea
             ref={textareaRef}
@@ -597,17 +597,18 @@ export const InputBox: React.FC = () => {
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a message... or / for commands, @ for files"
-            rows={2}
-            className="w-full bg-tauri-dark/50 text-gray-100 border border-tauri-border rounded-2xl px-5 py-4 text-sm resize-none focus:outline-none focus:border-tauri-primary focus:ring-1 focus:ring-tauri-primary/30 scrollbar-tauri placeholder-gray-600"
+            rows={1}
+            className="w-full bg-tauri-dark/50 text-gray-100 border border-tauri-border rounded-2xl px-5 py-3 text-sm resize-none focus:outline-none focus:border-tauri-primary focus:ring-1 focus:ring-tauri-primary/30 scrollbar-tauri placeholder-gray-600"
+            style={{ minHeight: '48px', maxHeight: '180px', overflowY: 'auto' }}
           />
-          <div className="absolute right-4 bottom-4 text-xs text-gray-600 font-mono">
+          <div className="absolute right-4 bottom-3 text-xs text-gray-600 font-mono">
             ⇧⏎ for newline
           </div>
         </div>
         <button
           onClick={handleSubmit}
           disabled={!input.trim()}
-          className="px-5 py-3 gradient-bg text-white rounded-xl text-sm font-medium flex items-end space-x-2 shadow-lg hover:shadow-tauri-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
+          className="h-12 min-w-[88px] flex-shrink-0 px-5 gradient-bg text-white rounded-xl text-sm font-medium flex items-center justify-center space-x-2 shadow-lg hover:shadow-tauri-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
