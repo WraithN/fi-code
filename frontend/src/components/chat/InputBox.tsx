@@ -410,6 +410,13 @@ export const InputBox: React.FC = () => {
     const val = e.target.value;
     setInput(val);
 
+    // 自动调整输入框高度
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    }
+
     // 检测 @ 触发文件选择器：独立 @ token（前面是空格或开头），后面无其他内容
     const atTrigger = /(?:^|\s)@\s*$/.test(val);
     if (atTrigger) {
@@ -600,11 +607,12 @@ export const InputBox: React.FC = () => {
         <button
           onClick={handleSubmit}
           disabled={!input.trim()}
-          className="px-6 py-4 gradient-bg text-white rounded-2xl text-sm font-semibold hover:shadow-lg hover:shadow-tauri-primary/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
+          className="px-5 py-3 gradient-bg text-white rounded-xl text-sm font-medium flex items-center space-x-2 shadow-lg hover:shadow-tauri-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
           </svg>
+          <span>Send</span>
         </button>
       </div>
     </div>
