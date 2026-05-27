@@ -51,8 +51,11 @@ export const InteractivePermissionPart: React.FC<Props> = ({ turnId, partIndex, 
       <div className="flex items-center gap-2 text-sm">
         <span className="text-text-muted">风险等级:</span>
         <span className={`font-semibold ${
-          part.risk === 'Critical' ? 'text-red-500' :
-          part.risk === 'High' ? 'text-orange-500' : 'text-yellow-500'
+          part.risk === 'Critical'
+            ? 'text-red-500'
+            : part.risk === 'High'
+            ? 'text-orange-500'
+            : 'text-yellow-500'
         }`}>
           {part.risk}
         </span>

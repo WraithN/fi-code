@@ -10,6 +10,8 @@ import { ToolErrorPart } from './ToolErrorPart';
 import { CodeBlockPart } from './CodeBlockPart';
 import { ImagePart } from './ImagePart';
 import { SystemNoticePart } from './SystemNoticePart';
+import { InteractivePermissionPart } from './InteractivePermissionPart';
+import { InteractiveQuestionPart } from './InteractiveQuestionPart';
 
 const partRenderers: Record<string, React.FC<{ part: Part }>> = {
   text: TextPart as React.FC<{ part: Part }>,
@@ -24,7 +26,13 @@ const partRenderers: Record<string, React.FC<{ part: Part }>> = {
   system_notice: SystemNoticePart as React.FC<{ part: Part }>,
 };
 
-export function PartRenderer({ part }: { part: Part }) {
+export function PartRenderer({ part, turnId, partIndex }: { part: Part; turnId?: string; partIndex?: number }) {
+  if (part.type === 'interactive_permission' && turnId !== undefined && partIndex !== undefined) {
+    return <InteractivePermissionPart turnId={turnId} partIndex={partIndex} part={part as any} />;
+  }
+  if (part.type === 'interactive_question' && turnId !== undefined && partIndex !== undefined) {
+    return <InteractiveQuestionPart turnId={turnId} partIndex={partIndex} part={part as any} />;
+  }
   const Renderer = partRenderers[part.type];
   if (!Renderer) {
     return <div className="text-xs text-error">Unknown part type: {part.type}</div>;

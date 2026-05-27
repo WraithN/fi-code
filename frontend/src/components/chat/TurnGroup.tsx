@@ -83,7 +83,7 @@ export const TurnGroup: React.FC<{ turn: Turn }> = ({ turn }) => {
                     }
                     return true;
                   })
-                  .map((part, i) => <PartRenderer key={i} part={part} />)
+                  .map((part, i) => <PartRenderer key={i} part={part} turnId={turn.id} partIndex={i} />)
               )}
             </div>
 

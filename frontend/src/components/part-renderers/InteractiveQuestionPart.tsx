@@ -59,7 +59,7 @@ export const InteractiveQuestionPart: React.FC<Props> = ({ turnId, partIndex, pa
 
       {part.status === 'pending' && (
         <div className="space-y-2">
-          {part.options.map((opt) => (
+          {part.options.map((opt: { id: string; label: string; description?: string }) => (
             <button
               key={opt.id}
               onClick={() => handleSelectOption(opt.id, opt.label)}

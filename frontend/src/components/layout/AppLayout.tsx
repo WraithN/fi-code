@@ -3,7 +3,7 @@ import { LeftDrawer } from './LeftDrawer';
 import { LogPanel } from './LogPanel';
 import { ChatPanel } from '../chat/ChatPanel';
 import { InputBox } from '../chat/InputBox';
-import { PermissionDialog } from '../PermissionDialog';
+
 import { useUIStore } from '../../stores/uiStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { getPresetByName, applyTheme } from '../../themes';
@@ -84,7 +84,7 @@ export const AppLayout: React.FC = () => {
         {/* 主内容区 */}
         <div className="flex-1 flex flex-col min-w-0 relative">
           <ChatPanel />
-          <PermissionDialog />
+    
           <InputBox />
         </div>
       </div>
