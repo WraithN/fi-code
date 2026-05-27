@@ -26,4 +26,22 @@ export type Part =
   | { type: 'image'; url: string; alt?: string }
   | { type: 'usage'; prompt_tokens: number; completion_tokens: number }
   | { type: 'wave_marker'; wave_id: string; turn: number }
-  | { type: 'system_notice'; kind: string; content: string };
+  | { type: 'system_notice'; kind: string; content: string }
+  | { 
+      type: 'interactive_permission'; 
+      tool_call_id: string; 
+      tool_name: string; 
+      risk: string; 
+      reason: string; 
+      status: 'pending' | 'approved' | 'rejected';
+    }
+  | { 
+      type: 'interactive_question'; 
+      tool_call_id: string; 
+      question: string; 
+      options: { id: string; label: string; description?: string }[]; 
+      recommended?: string;
+      allow_custom: boolean;
+      status: 'pending' | 'answered';
+      answer?: string;
+    };
