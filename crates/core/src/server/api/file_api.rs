@@ -97,6 +97,27 @@ pub async fn file_tree(
         }
     }
 
+    // 排序规则：
+    // 1. 文件夹排在文件前面
+    // 2. 隐藏文件/文件夹（以 . 开头）排在前面
+    // 3. 字母排序，小写在前，大写在后
+    entries.sort_by(|a, b| {
+        // 规则1：文件夹优先
+        match b.is_dir.cmp(&a.is_dir) {
+            std::cmp::Ordering::Equal => {
+                // 规则2：隐藏文件优先
+                match b.name.starts_with('.').cmp(&a.name.starts_with('.')) {
+                    std::cmp::Ordering::Equal => {
+                        // 规则3：字母排序，小写在前
+                        compare_file_name(&a.name, &b.name)
+                    }
+                    other => other,
+                }
+            }
+            other => other,
+        }
+    });
+
     let response = FileTreeResponse { root, entries };
     Json(ApiResponse::success(response))
 }
@@ -125,6 +146,28 @@ pub async fn file_content(
             "FILE_READ_ERROR",
         )),
     }
+}
+
+/// 比较两个文件名，规则：
+/// - 先按字母不区分大小写排序
+/// - 同字母时小写排在大写前面
+fn compare_file_name(a: &str, b: &str) -> std::cmp::Ordering {
+    for (ca, cb) in a.chars().zip(b.chars()) {
+        let ca_lower = ca.to_lowercase().next().unwrap_or(ca);
+        let cb_lower = cb.to_lowercase().next().unwrap_or(cb);
+        if ca_lower != cb_lower {
+            return ca_lower.cmp(&cb_lower);
+        }
+        if ca != cb {
+            if ca.is_lowercase() && cb.is_uppercase() {
+                return std::cmp::Ordering::Less;
+            }
+            if ca.is_uppercase() && cb.is_lowercase() {
+                return std::cmp::Ordering::Greater;
+            }
+        }
+    }
+    a.len().cmp(&b.len())
 }
 
 fn guess_language(path: &str) -> String {
