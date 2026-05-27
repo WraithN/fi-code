@@ -39,6 +39,7 @@ opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = { version = "0.27", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
 opentelemetry-semantic-conventions = "0.27"
 base64 = "0.22"
+rust-i18n = "3"
 
 [dev-dependencies]
 wiremock = "0.6"

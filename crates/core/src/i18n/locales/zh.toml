@@ -1,0 +1,15 @@
+[error]
+sudoDetected = "检测到 sudo 越权访问"
+rmrfDetected = "检测到 rm -rf 危险操作"
+bashInjection = "检测到潜在的 bash 注入攻击"
+permissionDenied = "权限被拒绝：用户拒绝"
+permissionTimeout = "权限确认超时 (30秒)"
+questionTimeout = "问题响应超时 (60秒)"
+channelClosed = "响应通道已关闭"
+responseSendFailed = "发送响应失败"
+
+[tool]
+bashHighRisk = "bash 工具需要用户确认"
+writeHighRisk = "工具 {name} 可能修改文件，需要确认"
+editHighRisk = "工具 {name} 可能修改文件，需要确认"
+autoApproved = "工具 {name} 自动放行（低风险）"

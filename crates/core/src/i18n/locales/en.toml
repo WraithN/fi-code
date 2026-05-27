@@ -1,0 +1,15 @@
+[error]
+sudoDetected = "sudo privilege escalation detected"
+rmrfDetected = "rm -rf dangerous operation detected"
+bashInjection = "potential bash injection attack detected"
+permissionDenied = "Permission denied: user rejected"
+permissionTimeout = "Permission confirmation timeout (30s)"
+questionTimeout = "Question response timeout (60s)"
+channelClosed = "Response channel closed"
+responseSendFailed = "Failed to send response"
+
+[tool]
+bashHighRisk = "tool bash requires user confirmation"
+writeHighRisk = "tool {name} may modify files, requires confirmation"
+editHighRisk = "tool {name} may modify files, requires confirmation"
+autoApproved = "tool {name} auto-approved (low risk)"
