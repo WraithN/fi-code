@@ -17,8 +17,11 @@
     "@types/highlight.js": "^9.12.4",
     "@types/react-syntax-highlighter": "^15.5.13",
     "highlight.js": "^11.11.1",
+    "i18next": "^26.3.0",
+    "i18next-browser-languagedetector": "^8.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.8",
     "react-syntax-highlighter": "^16.1.1",
     "zustand": "^4.5.2"
   },

@@ -1,0 +1,20 @@
+{
+  "permission.toolLabel": "Tool",
+  "permission.riskLabel": "Risk Level",
+  "permission.reasonLabel": "Reason",
+  "permission.approve": "Approve",
+  "permission.reject": "Reject",
+  "permission.approved": "✓ Approved",
+  "permission.rejected": "✗ Rejected",
+  "question.answered": "✓ Answered: {{answer}}",
+  "question.customPlaceholder": "Custom answer...",
+  "question.sendButton": "Send",
+  "chat.thinking": "Thinking...",
+  "chat.emptyTitle": "Welcome to fi-code",
+  "chat.emptySubtitle": "Your AI-powered coding assistant",
+  "chat.emptyHint": "Start a conversation or use /commands",
+  "error.permissionDenied": "Permission denied",
+  "error.permissionTimeout": "Permission confirmation timeout (30s)",
+  "error.questionTimeout": "Question response timeout (60s)",
+  "error.channelClosed": "Response channel closed"
+}

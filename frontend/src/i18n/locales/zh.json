@@ -1,0 +1,20 @@
+{
+  "permission.toolLabel": "工具",
+  "permission.riskLabel": "风险等级",
+  "permission.reasonLabel": "原因",
+  "permission.approve": "确认执行",
+  "permission.reject": "拒绝",
+  "permission.approved": "已确认执行",
+  "permission.rejected": "已拒绝",
+  "question.answered": "已回答",
+  "question.customPlaceholder": "自定义回答...",
+  "question.sendButton": "发送",
+  "chat.thinking": "Thinking...",
+  "chat.emptyTitle": "Welcome to fi-code",
+  "chat.emptySubtitle": "Your AI-powered coding assistant",
+  "chat.emptyHint": "Start a conversation or use /commands",
+  "error.permissionDenied": "权限被拒绝",
+  "error.permissionTimeout": "权限确认超时 (30s)",
+  "error.questionTimeout": "问题响应超时 (60s)",
+  "error.channelClosed": "响应通道已关闭"
+}
