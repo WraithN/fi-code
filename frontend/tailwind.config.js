@@ -21,6 +21,8 @@ export default {
         warning: 'var(--color-warning)',
         'selection-bg': 'var(--color-selection-bg)',
         'selection-fg': 'var(--color-selection-fg)',
+        primary: '#24C8DB',
+        'primary-hover': '#3DD4E6',
         tauri: {
           primary: '#24C8DB',
           secondary: '#C084FC',

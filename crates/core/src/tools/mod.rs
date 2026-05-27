@@ -1184,15 +1184,21 @@ pub async fn execute_tool_calls(
                     }
                     crate::permission::PermissionAction::Ask => {
                         if is_web {
+                            // 从工具参数中提取路径信息，附加到 reason 中
+                            let path_info = arguments.get("path")
+                                .and_then(|v| v.as_str())
+                                .map(|p| format!(" (目标文件: {})", p))
+                                .unwrap_or_default();
+                            let enriched_reason = format!("{}{}", reason, path_info);
                             // Web/Server/TUI 模式：发送 PermissionAsk SSE 事件并等待用户确认
-                            log_debug!("execute_tool_call ask (web) | name={} | risk={:?} | reason={}", name, risk, reason);
+                            log_debug!("execute_tool_call ask (web) | name={} | risk={:?} | reason={}", name, risk, enriched_reason);
                             if let Ok(mut guard) = cb.lock() {
                                 if let Some(ref mut callback) = *guard {
                                     let _ = callback(SseEvent::PermissionAsk {
                                         tool_call_id: id.clone(),
                                         tool_name: name.clone(),
                                         risk: format!("{:?}", risk),
-                                        reason: reason.clone(),
+                                        reason: enriched_reason.clone(),
                                     });
                                 }
                             }
