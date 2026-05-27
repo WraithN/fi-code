@@ -10,6 +10,7 @@ import { getPresetByName, applyTheme } from '../../themes';
 import { getStatus } from '../../services/model';
 import { apiClient } from '../../services/apiClient';
 import { CommandMeta } from '../../types/command';
+import { LanguageSwitcher } from '../../i18n/LanguageSwitcher';
 
 export const AppLayout: React.FC = () => {
   const { themeName, setCurrentModel, setCommands } = useUIStore();
@@ -67,6 +68,8 @@ export const AppLayout: React.FC = () => {
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
           <span className="text-sm text-gray-300">Ready to code</span>
         </div>
+        
+        <LanguageSwitcher />
         
         <button className="p-2 hover:bg-tauri-card rounded-lg transition-colors">
           <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
