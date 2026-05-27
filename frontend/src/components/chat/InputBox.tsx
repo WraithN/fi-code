@@ -607,10 +607,10 @@ export const InputBox: React.FC = () => {
         <button
           onClick={handleSubmit}
           disabled={!input.trim()}
-          className="px-5 py-3 gradient-bg text-white rounded-xl text-sm font-medium flex items-center space-x-2 shadow-lg hover:shadow-tauri-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
+          className="px-5 py-3 gradient-bg text-white rounded-xl text-sm font-medium flex items-end space-x-2 shadow-lg hover:shadow-tauri-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
           </svg>
           <span>Send</span>
         </button>
