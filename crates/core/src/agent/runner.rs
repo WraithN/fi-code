@@ -157,7 +157,8 @@ impl AgentRunner {
 
         // 构建带 Profile 后缀的系统提示词
         let registry = crate::skills::get_registry();
-        let system_prompt = PromptBuilder::new().build_with_profile(&tools_schema, registry, profile);
+        let system_prompt =
+            PromptBuilder::new().build_with_profile(&tools_schema, &registry, profile);
 
         // 消息历史截断：超过 30 条时只保留最近 30 条
         const MAX_CONTEXT_MESSAGES: usize = 30;
@@ -233,7 +234,14 @@ impl AgentRunner {
 
         let is_aggressive = crate::agent::compression::should_compress(messages);
         // 执行所有工具调用并收集结果（runner 暂无 chat 父 span，传 None）
-        let tool_results = execute_tool_calls(&turn.content_blocks, self.agent_type, on_tool_event, is_aggressive, None).await;
+        let tool_results = execute_tool_calls(
+            &turn.content_blocks,
+            self.agent_type,
+            on_tool_event,
+            is_aggressive,
+            None,
+        )
+        .await;
         if tool_results.is_empty() {
             log_debug!("AgentRunner::run_one_turn | tool_use but no results, stopping");
             let assistant_count = messages

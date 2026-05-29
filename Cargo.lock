@@ -1284,6 +1284,7 @@ dependencies = [
  "futures",
  "glob",
  "html2md",
+ "ignore",
  "insta",
  "jsonc-parser",
  "notify",

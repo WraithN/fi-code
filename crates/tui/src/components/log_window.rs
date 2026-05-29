@@ -29,8 +29,8 @@ use ratatui::{
 };
 
 use crate::components::Component;
-use fi_code_shared::tui_event::{LogLevel, LogLine};
 use crate::theme::Theme;
+use fi_code_shared::tui_event::{LogLevel, LogLine};
 
 /// 日志浮窗组件，用于实时显示应用运行日志。
 pub struct LogWindow {
@@ -187,7 +187,11 @@ impl Component for LogWindow {
         }
     }
 
-    fn handle_event(&mut self, event: &Event, _focus: bool) -> Option<fi_code_shared::tui_event::AppEvent> {
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        _focus: bool,
+    ) -> Option<fi_code_shared::tui_event::AppEvent> {
         if !self.visible {
             return None;
         }

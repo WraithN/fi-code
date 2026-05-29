@@ -100,7 +100,10 @@ impl LocalJsonlExporter {
 
     /// 写入一行（加换行符），通过 Mutex 保证互斥。
     fn write_line(&self, line: &str) -> std::io::Result<()> {
-        let mut f = self.file.lock().expect("LocalJsonlExporter file mutex poisoned");
+        let mut f = self
+            .file
+            .lock()
+            .expect("LocalJsonlExporter file mutex poisoned");
         f.write_all(line.as_bytes())?;
         f.write_all(b"\n")?;
         Ok(())
@@ -157,7 +160,9 @@ fn now_unix_nano() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opentelemetry::trace::{SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId, TraceState};
+    use opentelemetry::trace::{
+        SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId, TraceState,
+    };
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::trace::SpanLinks;
     use std::borrow::Cow;
@@ -194,7 +199,11 @@ mod tests {
         let path = dir.path().join("spans.jsonl");
         let mut exp = LocalJsonlExporter::new(path.clone()).unwrap();
 
-        let span = dummy_span("test.span", "0123456789abcdef0123456789abcdef", "0123456789abcdef");
+        let span = dummy_span(
+            "test.span",
+            "0123456789abcdef0123456789abcdef",
+            "0123456789abcdef",
+        );
         exp.export(vec![span]).await.unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();

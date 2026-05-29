@@ -214,7 +214,14 @@ pub async fn send_with_retry(
                 if !is_retryable_error(&err) || attempt >= config.max_retries {
                     return Err(err.into());
                 }
-                do_retry_backoff(attempt, config, "network error", &err.to_string(), &mut notifier).await;
+                do_retry_backoff(
+                    attempt,
+                    config,
+                    "network error",
+                    &err.to_string(),
+                    &mut notifier,
+                )
+                .await;
                 attempt += 1;
                 continue;
             }
@@ -232,7 +239,14 @@ pub async fn send_with_retry(
             return Ok(resp);
         }
         let text = resp.text().await.unwrap_or_default();
-        do_retry_backoff(attempt, config, &format!("HTTP {}", status), &text, &mut notifier).await;
+        do_retry_backoff(
+            attempt,
+            config,
+            &format!("HTTP {}", status),
+            &text,
+            &mut notifier,
+        )
+        .await;
         attempt += 1;
     }
 }

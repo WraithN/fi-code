@@ -24,7 +24,7 @@ export type Part =
   | { type: 'thinking'; content: string }
   | { type: 'code_block'; language: string; code: string }
   | { type: 'image'; url: string; alt?: string }
-  | { type: 'usage'; prompt_tokens: number; completion_tokens: number }
+  | { type: 'usage'; prompt_tokens: number; completion_tokens: number; latency_ms: number }
   | { type: 'wave_marker'; wave_id: string; turn: number }
   | { type: 'system_notice'; kind: string; content: string }
   | { 

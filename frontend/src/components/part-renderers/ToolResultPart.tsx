@@ -3,11 +3,17 @@ import { Part, ToolResultMetadata } from '../../types/part';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 
+const MAX_LINES = 30;
+const PREVIEW_LINES = 3;
+
 export const ToolResultPart: React.FC<{ part: Extract<Part, { type: 'tool_result' }> }> = ({ part }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const content = part.content || '';
+  const lines = content.split('\n');
+  const shouldCollapse = lines.length > MAX_LINES;
+  const [isExpanded, setIsExpanded] = useState(!shouldCollapse);
+  
   const metadata = part.metadata as ToolResultMetadata | undefined;
   
-  // 判断内容是否是代码
   const isCode = metadata?.content_type === 'code' || 
                  metadata?.tool_name === 'read' || 
                  metadata?.tool_name === 'write' ||
@@ -15,8 +21,9 @@ export const ToolResultPart: React.FC<{ part: Extract<Part, { type: 'tool_result
                  metadata?.tool_name === 'glob' ||
                  metadata?.tool_name === 'grep';
   
-  const codeContent = part.content || '';
-  const highlightedCode = isCode && codeContent ? hljs.highlightAuto(codeContent).value : codeContent;
+  const previewContent = lines.slice(0, PREVIEW_LINES).join('\n');
+  const displayContent = isExpanded ? content : (shouldCollapse ? previewContent : content);
+  const highlightedCode = isCode && displayContent ? hljs.highlightAuto(displayContent).value : displayContent;
   
   return (
     <div className={`my-3 rounded-xl border overflow-hidden transition-all ${
@@ -83,9 +90,9 @@ export const ToolResultPart: React.FC<{ part: Extract<Part, { type: 'tool_result
                 </span>
               )}
               
-              {metadata.line_count && (
+              {lines.length > 1 && (
                 <span className="text-xs text-gray-500 font-mono">
-                  #{metadata.line_count} lines
+                  #{lines.length} lines
                 </span>
               )}
               
@@ -129,6 +136,30 @@ export const ToolResultPart: React.FC<{ part: Extract<Part, { type: 'tool_result
               {part.content}
             </div>
           )}
+          {shouldCollapse && (
+            <button
+              onClick={() => setIsExpanded(false)}
+              className="text-tauri-primary hover:text-tauri-primary-hover text-xs mt-2 underline cursor-pointer"
+            >
+              收起
+            </button>
+          )}
+        </div>
+      )}
+      
+      {/* 折叠时显示预览 */}
+      {!isExpanded && shouldCollapse && part.content && part.content.trim().length > 0 && (
+        <div className="p-4">
+          <div className="text-sm text-gray-400 font-mono whitespace-pre-wrap break-words bg-tauri-dark/30 p-4 rounded-lg border border-tauri-border/30">
+            {previewContent}
+            {'\n'}...
+          </div>
+          <button
+            onClick={() => setIsExpanded(true)}
+            className="text-tauri-primary hover:text-tauri-primary-hover text-xs mt-2 underline cursor-pointer"
+          >
+            展开全部（{lines.length} 行）
+          </button>
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useChatStore } from '../../stores/chatStore';
 import { TurnGroup } from './TurnGroup';
 
@@ -7,17 +8,35 @@ export const ChatPanel: React.FC = () => {
   const { t } = useTranslation();
   const turns = useChatStore((s) => s.turns);
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
 
+  const virtualizer = useVirtualizer({
+    count: turns.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 200,
+    overscan: 3,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  });
+
+  // 自动滚动到底部（仅在生成中时）
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (isGenerating && parentRef.current) {
+      const items = virtualizer.getVirtualItems();
+      if (items.length > 0) {
+        virtualizer.scrollToIndex(turns.length - 1, { align: 'end' });
+      }
     }
-  }, [turns]);
+  }, [turns.length, isGenerating, virtualizer]);
+
+  const virtualItems = virtualizer.getVirtualItems();
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 scrollbar-tauri">
+      <div
+        ref={parentRef}
+        className="flex-1 overflow-y-auto p-6 scrollbar-tauri"
+        style={{ contain: 'strict' }}
+      >
         {turns.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-lg">
@@ -32,8 +51,29 @@ export const ChatPanel: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="space-y-6">
-            {turns.map((turn) => <TurnGroup key={turn.id} turn={turn} />)}
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualItems.map((virtualItem) => (
+              <div
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                <TurnGroup turn={turns[virtualItem.index]} />
+              </div>
+            ))}
           </div>
         )}
       </div>

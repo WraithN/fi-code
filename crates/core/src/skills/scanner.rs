@@ -36,43 +36,44 @@ use crate::skills::{
 // 本模块负责发现磁盘上所有 Skill 来源目录，解析其中的 SKILL.md，
 // 并在缓存目录创建符号链接，最终组装成 SkillRegistry。
 
-/// 扫描所有 Skill 来源目录，返回存在的目录列表。
+/// 系统默认 Skill 扫描来源。
 ///
-/// 来源目录按优先级排序（后加载的覆盖先加载的）：
-/// 1. `<workspace>/.skills/` — scope = workspace 目录名, type = Project
-/// 2. `~/.config/fi-code/skills/` — scope = "fi-code", type = Global
-/// 3. `~/.config/agent/skills/` — scope = "agent", type = Agent
-/// 4. `~/.claude/skills/` — scope = "claude", type = Claude
-///
-/// `directories::ProjectDirs::from("", "", app)` 用于解析平台相关的配置目录。
-/// `dirs::home_dir()` 用于解析用户主目录。
-pub fn scan_sources(workspace: &Path) -> Vec<(PathBuf, String, SkillSourceType)> {
+/// 返回 (路径, scope, source_type) 列表，包含 5 个固定来源：
+/// 1. `<workspace>/.skills/` — scope = workspace 目录名
+/// 2. `<workspace>/.opencode/skills/` — scope = workspace 目录名
+/// 3. `~/.config/fi-code/skills/` — scope = "fi-code"
+/// 4. `~/.config/agent/skills/` — scope = "agent"
+/// 5. `~/.claude/skills/` — scope = "claude"
+fn default_skill_sources(workspace: &Path) -> Vec<(PathBuf, String, SkillSourceType)> {
     let mut sources = Vec::new();
+
+    let scope = workspace
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("workspace")
+        .to_string();
 
     // 1. 工作区本地 Skill 目录
     let workspace_skills = workspace.join(".skills");
     if workspace_skills.is_dir() {
-        let scope = workspace
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("workspace")
-            .to_string();
-        sources.push((workspace_skills, scope, SkillSourceType::Project));
+        sources.push((workspace_skills, scope.clone(), SkillSourceType::Project));
     }
 
-    // 2. fi-code 全局配置目录
+    // 2. OpenCode / Kimi Code 工作区 Skill 目录
+    let opencode_skills = workspace.join(".opencode").join("skills");
+    if opencode_skills.is_dir() {
+        sources.push((opencode_skills, scope, SkillSourceType::Project));
+    }
+
+    // 3. fi-code 全局配置目录
     if let Some(project_dirs) = directories::ProjectDirs::from("", "", "fi-code") {
         let global_skills = project_dirs.config_dir().join("skills");
         if global_skills.is_dir() {
-            sources.push((
-                global_skills,
-                "fi-code".to_string(),
-                SkillSourceType::Global,
-            ));
+            sources.push((global_skills, "fi-code".to_string(), SkillSourceType::Global));
         }
     }
 
-    // 3. agent 全局配置目录
+    // 4. agent 全局配置目录
     if let Some(project_dirs) = directories::ProjectDirs::from("", "", "agent") {
         let agent_skills = project_dirs.config_dir().join("skills");
         if agent_skills.is_dir() {
@@ -80,11 +81,36 @@ pub fn scan_sources(workspace: &Path) -> Vec<(PathBuf, String, SkillSourceType)>
         }
     }
 
-    // 4. Claude 家目录
+    // 5. Claude 家目录
     if let Some(home) = dirs::home_dir() {
         let claude_skills = home.join(".claude").join("skills");
         if claude_skills.is_dir() {
             sources.push((claude_skills, "claude".to_string(), SkillSourceType::Claude));
+        }
+    }
+
+    sources
+}
+
+/// 扫描所有 Skill 来源目录，返回存在的目录列表。
+///
+/// 先扫描系统默认来源，再追加用户自定义目录。
+/// 来源目录按优先级排序（后加载的覆盖先加载的）。
+///
+/// `directories::ProjectDirs::from("", "", app)` 用于解析平台相关的配置目录。
+/// `dirs::home_dir()` 用于解析用户主目录。
+pub fn scan_sources(
+    workspace: &Path,
+    extra_dirs: Option<&[String]>,
+) -> Vec<(PathBuf, String, SkillSourceType)> {
+    let mut sources = default_skill_sources(workspace);
+
+    if let Some(dirs) = extra_dirs {
+        for dir in dirs {
+            let path = PathBuf::from(dir);
+            if path.is_dir() {
+                sources.push((path, "custom".to_string(), SkillSourceType::Custom));
+            }
         }
     }
 
@@ -128,52 +154,78 @@ pub fn scan_source_dir(
 
         // 只处理包含 SKILL.md 的目录
         let skill_md_path = path.join("SKILL.md");
-        if !skill_md_path.exists() {
-            continue;
-        }
-
-        match load_skill_metadata_and_body(&path) {
-            Ok((metadata, _body)) => {
-                let id = format!("{}-{}", scope, metadata.name);
-
-                // 移除 registry 中已有的同名条目（override 行为）
-                registry.entries.retain(|e| e.id != id);
-
-                // 创建或替换 symlink
-                let symlink_path = cache_dir.join(&id);
-                if symlink_path.exists() {
-                    if let Err(e) = fs::remove_file(&symlink_path) {
-                        log_info!(
-                            "Warning: failed to remove existing symlink {:?}: {}",
-                            symlink_path,
-                            e
-                        );
+        if skill_md_path.exists() {
+            // 直接子目录就是 skill 目录
+            load_skill_into_registry(&path, scope, source_type, cache_dir, registry);
+        } else {
+            // 尝试扫描该子目录的直接子目录（支持一层嵌套，如 superpowers/skills/）
+            if let Ok(sub_entries) = fs::read_dir(&path) {
+                for sub_entry in sub_entries.filter_map(|e| e.ok()) {
+                    let sub_path = sub_entry.path();
+                    if !sub_path.is_dir() {
                         continue;
                     }
+                    let sub_skill_md = sub_path.join("SKILL.md");
+                    if sub_skill_md.exists() {
+                        load_skill_into_registry(&sub_path, scope, source_type, cache_dir, registry);
+                    }
                 }
+            }
+        }
+    }
+}
 
-                if let Err(e) = create_symlink(&path, &symlink_path) {
+/// 将单个 Skill 目录加载到 Registry 中。
+///
+/// 提取自 `scan_source_dir` 的公共逻辑，用于直接加载和嵌套加载。
+fn load_skill_into_registry(
+    path: &Path,
+    scope: &str,
+    source_type: SkillSourceType,
+    cache_dir: &Path,
+    registry: &mut SkillRegistry,
+) {
+    match load_skill_metadata_and_body(path) {
+        Ok((metadata, _body)) => {
+            let id = format!("{}-{}", scope, metadata.name);
+
+            // 移除 registry 中已有的同名条目（override 行为）
+            registry.entries.retain(|e| e.id != id);
+
+            // 创建或替换 symlink
+            let symlink_path = cache_dir.join(&id);
+            if symlink_path.exists() {
+                if let Err(e) = fs::remove_file(&symlink_path) {
                     log_info!(
-                        "Warning: failed to create symlink {:?} -> {:?}: {}",
+                        "Warning: failed to remove existing symlink {:?}: {}",
                         symlink_path,
-                        path,
                         e
                     );
-                    continue;
+                    return;
                 }
+            }
 
-                registry.entries.push(SkillEntry {
-                    id,
-                    scope: scope.to_string(),
-                    source_type,
+            if let Err(e) = create_symlink(path, &symlink_path) {
+                log_info!(
+                    "Warning: failed to create symlink {:?} -> {:?}: {}",
                     symlink_path,
-                    target_path: path.clone(),
-                    metadata,
-                });
+                    path,
+                    e
+                );
+                return;
             }
-            Err(e) => {
-                log_info!("Warning: failed to load skill from {:?}: {}", path, e);
-            }
+
+            registry.entries.push(SkillEntry {
+                id,
+                scope: scope.to_string(),
+                source_type,
+                symlink_path,
+                target_path: path.to_path_buf(),
+                metadata,
+            });
+        }
+        Err(e) => {
+            log_info!("Warning: failed to load skill from {:?}: {}", path, e);
         }
     }
 }
@@ -204,7 +256,7 @@ pub fn create_symlink(target: &Path, link: &Path) -> io::Result<()> {
 /// 3. 对每个来源调用 `scan_source_dir`
 /// 4. 清理过期的 registry 条目
 /// 5. 保存 registry 到磁盘
-pub fn scan_and_build_registry(workspace: &Path) -> SkillRegistry {
+pub fn scan_and_build_registry(workspace: &Path, extra_dirs: Option<&[String]>) -> SkillRegistry {
     let cache_dir = cache_skills_dir();
     if let Err(e) = fs::create_dir_all(&cache_dir) {
         eprintln!(
@@ -214,7 +266,7 @@ pub fn scan_and_build_registry(workspace: &Path) -> SkillRegistry {
     }
 
     let mut registry = SkillRegistry::new();
-    let sources = scan_sources(workspace);
+    let sources = scan_sources(workspace, extra_dirs);
 
     for (source_dir, scope, source_type) in sources {
         scan_source_dir(&source_dir, &scope, source_type, &cache_dir, &mut registry);
@@ -303,6 +355,53 @@ mod tests {
 
         assert_eq!(registry.entries.len(), 1);
         assert_eq!(registry.entries[0].id, "test-scope-valid-skill");
+    }
+
+    /// 测试 scan_source_dir 能发现嵌套子目录中的 Skill（如 superpowers/skills/brainstorming/）
+    #[test]
+    fn test_scan_source_dir_nested_skill() {
+        let source_dir = TempDir::new().unwrap();
+        let cache_dir = TempDir::new().unwrap();
+
+        // 嵌套结构：source/nested-group/my-skill/SKILL.md
+        let nested_group = source_dir.path().join("nested-group");
+        fs::create_dir(&nested_group).unwrap();
+        let skill_dir = nested_group.join("my-skill");
+        fs::create_dir(&skill_dir).unwrap();
+        write_skill_md(&skill_dir, "my-skill", "A nested skill");
+
+        let mut registry = SkillRegistry::new();
+        scan_source_dir(
+            source_dir.path(),
+            "test-scope",
+            SkillSourceType::Global,
+            cache_dir.path(),
+            &mut registry,
+        );
+
+        assert_eq!(registry.entries.len(), 1);
+        let entry = &registry.entries[0];
+        assert_eq!(entry.id, "test-scope-my-skill");
+        assert_eq!(entry.metadata.name, "my-skill");
+        assert_eq!(entry.metadata.description, "A nested skill");
+    }
+
+    /// 测试 scan_sources 能发现工作区中的 .opencode/skills/ 目录
+    #[test]
+    fn test_scan_sources_includes_opencode_skills() {
+        let workspace = TempDir::new().unwrap();
+        let opencode_skills = workspace.path().join(".opencode").join("skills");
+        fs::create_dir_all(&opencode_skills).unwrap();
+        let skill_dir = opencode_skills.join("test-skill");
+        fs::create_dir(&skill_dir).unwrap();
+        write_skill_md(&skill_dir, "test-skill", "An opencode skill");
+
+        let sources = scan_sources(workspace.path(), None);
+        let opencode_source = sources.iter().find(|(p, _, _)| p.ends_with(".opencode/skills"));
+        assert!(
+            opencode_source.is_some(),
+            "scan_sources should include .opencode/skills"
+        );
     }
 
     /// 测试相同 id 的 Skill 会被后加载的来源覆盖

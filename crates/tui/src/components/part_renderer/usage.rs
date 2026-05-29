@@ -19,11 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use ratatui::{
-    layout::Alignment,
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{layout::Alignment, text::Line, widgets::Paragraph};
 
 use super::*;
 
@@ -47,16 +43,16 @@ impl PartRenderer for UsageRenderer {
 
     fn draw(&self, frame: &mut Frame, area: Rect, part: &Part, theme: &Theme, _skip_lines: u16) {
         if let Part::Usage {
-            input_tokens,
-            output_tokens,
+            prompt_tokens,
+            completion_tokens,
             latency_ms,
             cost,
         } = part
         {
             let mut text = format!(
                 "⬆️{} ⬇️{} · LAT:{:.1}s",
-                format_tokens(*input_tokens),
-                format_tokens(*output_tokens),
+                format_tokens(*prompt_tokens),
+                format_tokens(*completion_tokens),
                 *latency_ms as f64 / 1000.0
             );
             if let Some(c) = cost {

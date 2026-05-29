@@ -27,6 +27,11 @@ use std::sync::{Arc, RwLock};
 #[tokio::main]
 async fn main() {
     let config = Arc::new(RwLock::new(Config::load().unwrap()));
+    {
+        let cfg = config.read().expect("config read");
+        let extra = cfg.skills.as_ref().map(|s| s.directories.as_slice());
+        fi_code_core::skills::init_skills(extra);
+    }
     let provider = Arc::new(RwLock::new(Provider::new(Arc::clone(&config)).unwrap()));
 
     // 初始化可观测性子系统：失败则致命退出（保证 trace 数据完整性）

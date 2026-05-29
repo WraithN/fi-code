@@ -45,6 +45,7 @@ pub enum SkillSourceType {
     Global,
     Agent,
     Claude,
+    Custom,
 }
 
 /// Registry 中的单个 Skill 条目

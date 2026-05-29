@@ -66,19 +66,28 @@ const TOKEN_WEIGHT_NON_ASCII: f64 = 0.67;
 /// 估算文本的 token 数。
 pub fn estimate_tokens(text: &str) -> u32 {
     text.chars()
-        .map(|c| if c.is_ascii() { TOKEN_WEIGHT_ASCII } else { TOKEN_WEIGHT_NON_ASCII })
+        .map(|c| {
+            if c.is_ascii() {
+                TOKEN_WEIGHT_ASCII
+            } else {
+                TOKEN_WEIGHT_NON_ASCII
+            }
+        })
         .sum::<f64>()
         .ceil() as u32
 }
 
 /// 估算单条消息的 token 数。
 pub fn estimate_message_tokens(msg: &Message) -> u32 {
-    msg.parts.iter().map(|part| match part {
-        Part::Text { text } => estimate_tokens(text),
-        Part::ToolResult { content, .. } => estimate_tokens(content),
-        Part::ToolError { content, .. } => estimate_tokens(content),
-        _ => 20,
-    }).sum()
+    msg.parts
+        .iter()
+        .map(|part| match part {
+            Part::Text { text } => estimate_tokens(text),
+            Part::ToolResult { content, .. } => estimate_tokens(content),
+            Part::ToolError { content, .. } => estimate_tokens(content),
+            _ => 20,
+        })
+        .sum()
 }
 
 /// 估算消息列表的总 token 数。
@@ -142,7 +151,8 @@ pub fn compress_tool_result(content: &str, is_aggressive: bool, tool_name: Optio
         }
     }
 
-    let threshold = get_tool_threshold(tool_name, is_aggressive).unwrap_or(fi_code_shared::constants::DEFAULT_COMPRESS_THRESHOLD);
+    let threshold = get_tool_threshold(tool_name, is_aggressive)
+        .unwrap_or(fi_code_shared::constants::DEFAULT_COMPRESS_THRESHOLD);
     do_compress(content, threshold)
 }
 
@@ -180,7 +190,10 @@ fn do_compress(content: &str, threshold: usize) -> String {
 /// 判断一条消息是否是纯粹的 tool_result 消息（不是用户主动输入）。
 fn is_tool_result_message(msg: &Message) -> bool {
     msg.role == Role::User
-        && msg.parts.iter().all(|p| matches!(p, Part::ToolResult { .. } | Part::ToolError { .. }))
+        && msg
+            .parts
+            .iter()
+            .all(|p| matches!(p, Part::ToolResult { .. } | Part::ToolError { .. }))
 }
 
 /// 找到可以被压缩的消息范围。
@@ -308,7 +321,9 @@ async fn run_compression_subagent<C: AIClient + ?Sized>(
 fn calculate_context_ratio(loop_state: &LoopState) -> u8 {
     let limit = get_context_limit();
     let current = estimate_total_tokens(&loop_state.messages);
-    if limit == 0 { return 0; }
+    if limit == 0 {
+        return 0;
+    }
     ((current as f64 / limit as f64) * 100.0).min(100.0) as u8
 }
 
@@ -332,12 +347,14 @@ pub async fn compress_history<C: AIClient + ?Sized>(
 
     // 发送压缩开始事件
     if let Some(sender) = sse_sender {
-        let _ = sender.send(crate::server::transport::sse::SseEvent::CompressionStatus {
-            is_compressing: true,
-            progress: 0,
-            context_ratio: calculate_context_ratio(loop_state),
-            summary: None,
-        }).await;
+        let _ = sender
+            .send(crate::server::transport::sse::SseEvent::CompressionStatus {
+                is_compressing: true,
+                progress: 0,
+                context_ratio: calculate_context_ratio(loop_state),
+                summary: None,
+            })
+            .await;
     }
 
     let (start, end) = range;
@@ -359,7 +376,9 @@ pub async fn compress_history<C: AIClient + ?Sized>(
     let token_savings = if original_tokens > 0 {
         let saved = original_tokens.saturating_sub(after_tokens);
         ((saved as f64 / original_tokens as f64) * 100.0) as u8
-    } else { 0 };
+    } else {
+        0
+    };
 
     let display_text = format!(
         "🗜️ 上下文已压缩 | {}条消息 → 1条摘要 | 节省 {}% tokens",
@@ -368,20 +387,24 @@ pub async fn compress_history<C: AIClient + ?Sized>(
 
     // 发送压缩完成事件
     if let Some(sender) = sse_sender {
-        let _ = sender.send(crate::server::transport::sse::SseEvent::CompressionStatus {
-            is_compressing: false,
-            progress: 100,
-            context_ratio: calculate_context_ratio(loop_state),
-            summary: Some(display_text.clone()),
-        }).await;
+        let _ = sender
+            .send(crate::server::transport::sse::SseEvent::CompressionStatus {
+                is_compressing: false,
+                progress: 100,
+                context_ratio: calculate_context_ratio(loop_state),
+                summary: Some(display_text.clone()),
+            })
+            .await;
 
         // 在聊天流中插入系统通知
-        let _ = sender.send(crate::server::transport::sse::SseEvent::Part {
-            part: Part::SystemNotice {
-                kind: "compression_done".to_string(),
-                content: display_text,
-            },
-        }).await;
+        let _ = sender
+            .send(crate::server::transport::sse::SseEvent::Part {
+                part: Part::SystemNotice {
+                    kind: "compression_done".to_string(),
+                    content: display_text,
+                },
+            })
+            .await;
     }
 
     let session_id = loop_state
@@ -439,7 +462,9 @@ mod tests {
         let messages = vec![Message::new(
             "test".to_string(),
             Role::User,
-            vec![Part::Text { text: "hi".to_string() }],
+            vec![Part::Text {
+                text: "hi".to_string(),
+            }],
         )];
         assert!(!should_compress(&messages));
     }
@@ -563,8 +588,20 @@ mod tests {
     #[test]
     fn test_find_compression_range_insufficient_messages() {
         let messages = vec![
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u1".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a1".to_string() }]),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a1".to_string(),
+                }],
+            ),
         ];
         assert!(find_compression_range(&messages).is_none());
     }
@@ -572,12 +609,48 @@ mod tests {
     #[test]
     fn test_find_compression_range_basic() {
         let messages = vec![
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u1".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a1".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u2".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a2".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u3".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a3".to_string() }]),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u3".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a3".to_string(),
+                }],
+            ),
         ];
         let range = find_compression_range(&messages);
         assert!(range.is_some());
@@ -589,14 +662,40 @@ mod tests {
     #[test]
     fn test_find_safe_split_point_tool_pairing() {
         let messages = vec![
-            Message::new("s".to_string(), Role::Assistant, vec![
-                Part::ToolUse { id: "t1".to_string(), name: "bash".to_string(), arguments: serde_json::Value::Null },
-            ]),
-            Message::new("s".to_string(), Role::User, vec![
-                Part::ToolResult { tool_call_id: "t1".to_string(), content: "result".to_string(), duration_ms: None, metadata: None, for_context_only: false },
-            ]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u2".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a2".to_string() }]),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::ToolUse {
+                    id: "t1".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::Value::Null,
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::ToolResult {
+                    tool_call_id: "t1".to_string(),
+                    content: "result".to_string(),
+                    duration_ms: None,
+                    metadata: None,
+                    for_context_only: false,
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a2".to_string(),
+                }],
+            ),
         ];
         let safe = find_safe_split_point(&messages, 2);
         assert_eq!(safe, 2);
@@ -604,9 +703,13 @@ mod tests {
 
     #[test]
     fn test_build_llm_messages_without_summary() {
-        let state = LoopState::new(vec![
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u1".to_string() }]),
-        ]);
+        let state = LoopState::new(vec![Message::new(
+            "s".to_string(),
+            Role::User,
+            vec![Part::Text {
+                text: "u1".to_string(),
+            }],
+        )]);
         let msgs = build_llm_messages(&state);
         assert_eq!(msgs.len(), 1);
     }
@@ -614,17 +717,55 @@ mod tests {
     #[test]
     fn test_build_llm_messages_with_summary() {
         let mut state = LoopState::new(vec![
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u1".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a1".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u2".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a2".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: "u3".to_string() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a3".to_string() }]),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: "u3".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a3".to_string(),
+                }],
+            ),
         ]);
         state.compression_summary = Some(Message::new(
             "s".to_string(),
             Role::User,
-            vec![Part::Text { text: "summary".to_string() }],
+            vec![Part::Text {
+                text: "summary".to_string(),
+            }],
         ));
         let msgs = build_llm_messages(&state);
         assert_eq!(msgs.len(), 5); // summary + u2 + a2 + u3 + a3
@@ -637,12 +778,48 @@ mod tests {
         // 构造足够长的消息列表以触发压缩
         let long_text = "a".repeat(50_000);
         let messages = vec![
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: long_text.clone() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a1".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: long_text.clone() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a2".to_string() }]),
-            Message::new("s".to_string(), Role::User, vec![Part::Text { text: long_text.clone() }]),
-            Message::new("s".to_string(), Role::Assistant, vec![Part::Text { text: "a3".to_string() }]),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: long_text.clone(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a1".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: long_text.clone(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a2".to_string(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::User,
+                vec![Part::Text {
+                    text: long_text.clone(),
+                }],
+            ),
+            Message::new(
+                "s".to_string(),
+                Role::Assistant,
+                vec![Part::Text {
+                    text: "a3".to_string(),
+                }],
+            ),
         ];
 
         let loop_state = LoopState::new(messages);
@@ -665,19 +842,36 @@ mod tests {
 
         // 验证收到了 CompressionStatus 开始事件
         let start_event = events.iter().find(|e| {
-            matches!(e, crate::server::transport::sse::SseEvent::CompressionStatus { is_compressing: true, .. })
+            matches!(
+                e,
+                crate::server::transport::sse::SseEvent::CompressionStatus {
+                    is_compressing: true,
+                    ..
+                }
+            )
         });
         assert!(start_event.is_some(), "Expected compression start event");
 
         // 验证收到了 CompressionStatus 结束事件
         let end_event = events.iter().find(|e| {
-            matches!(e, crate::server::transport::sse::SseEvent::CompressionStatus { is_compressing: false, .. })
+            matches!(
+                e,
+                crate::server::transport::sse::SseEvent::CompressionStatus {
+                    is_compressing: false,
+                    ..
+                }
+            )
         });
         assert!(end_event.is_some(), "Expected compression end event");
 
         // 验证收到了 SystemNotice Part 事件
         let notice_event = events.iter().find(|e| {
-            matches!(e, crate::server::transport::sse::SseEvent::Part { part: Part::SystemNotice { .. } })
+            matches!(
+                e,
+                crate::server::transport::sse::SseEvent::Part {
+                    part: Part::SystemNotice { .. }
+                }
+            )
         });
         assert!(notice_event.is_some(), "Expected system notice event");
     }

@@ -62,6 +62,8 @@ impl HttpSessionManager {
                 transition_reason: state.transition_reason.clone(),
                 token_usage: state.token_usage,
                 compression_summary: state.compression_summary.clone(),
+                user_intent: state.user_intent.clone(),
+                intent_verified: state.intent_verified,
             }
         })
     }

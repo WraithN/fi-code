@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '../../services/apiClient';
 import { useChatStore } from '../../stores/chatStore';
 import { Part } from '../../types/part';
+import { DynamicOption } from './DynamicOption';
 
 interface Props {
   turnId: string;
@@ -15,10 +16,12 @@ export const InteractiveQuestionPart: React.FC<Props> = ({ turnId, partIndex, pa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customAnswer, setCustomAnswer] = useState('');
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const updatePart = useChatStore((s) => s.updatePart);
 
   const handleSelectOption = async (optionId: string, label: string) => {
     if (loading || part.status !== 'pending') return;
+    setSelectedOption(optionId);
     setLoading(true);
     setError(null);
     try {
@@ -30,6 +33,7 @@ export const InteractiveQuestionPart: React.FC<Props> = ({ turnId, partIndex, pa
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to respond');
+      setSelectedOption(null);
     } finally {
       setLoading(false);
     }
@@ -54,75 +58,109 @@ export const InteractiveQuestionPart: React.FC<Props> = ({ turnId, partIndex, pa
   };
 
   return (
-    <div className="my-2 p-4 glass border border-tauri-border rounded-2xl space-y-3">
-      <div className="text-sm font-medium text-text">
-        {part.question}
-      </div>
+    <div className="my-3">
+      <div className="glass border border-tauri-border rounded-2xl p-5 shadow-lg">
+        {/* 问题标题 */}
+        <p className="text-sm font-medium text-text mb-4 leading-relaxed">
+          {part.question}
+        </p>
 
-      {part.status === 'pending' && (
-        <div className="space-y-2">
-          {part.options.map((opt: { id: string; label: string; description?: string }) => (
-            <button
-              key={opt.id}
-              onClick={() => handleSelectOption(opt.id, opt.label)}
-              disabled={loading}
-              className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors disabled:opacity-50 ${
-                part.recommended === opt.id
-                  ? 'bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30'
-                  : 'bg-bg-tertiary text-text hover:bg-bg-overlay border border-transparent'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {part.recommended === opt.id && (
-                  <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                <span className="font-medium">{opt.label}</span>
-              </div>
-              {opt.description && (
-                <div className="text-xs text-text-muted mt-1 ml-6">{opt.description}</div>
-              )}
-            </button>
-          ))}
-
-          {part.allow_custom && (
-            <div className="flex gap-2 pt-1">
-              <input
-                type="text"
-                value={customAnswer}
-                onChange={(e) => setCustomAnswer(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleCustomAnswer();
-                  }
-                }}
-                placeholder={t('question.customPlaceholder')}
+        {part.status === 'pending' && (
+          <div className="space-y-3">
+            {/* 选项列表 - 使用 DynamicOption 组件 */}
+            {part.options.map((opt: { id: string; label: string; description?: string }) => (
+              <DynamicOption
+                key={opt.id}
+                label={opt.label}
+                description={opt.description}
+                selected={selectedOption === opt.id}
+                recommended={part.recommended === opt.id}
                 disabled={loading}
-                className="flex-1 bg-bg-tertiary text-text text-sm rounded-xl px-4 py-2.5 border border-tauri-border focus:outline-none focus:border-primary disabled:opacity-50"
+                onClick={() => handleSelectOption(opt.id, opt.label)}
               />
-              <button
-                onClick={handleCustomAnswer}
-                disabled={!customAnswer.trim() || loading}
-                className="px-4 py-2.5 rounded-xl bg-primary text-white hover:bg-primary-hover transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            ))}
+
+            {/* 自定义输入 */}
+            {part.allow_custom && (
+              <div className="flex items-center gap-3 mt-4 pt-2">
+                <input
+                  type="text"
+                  value={customAnswer}
+                  onChange={(e) => setCustomAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCustomAnswer();
+                    }
+                  }}
+                  placeholder={t('question.customPlaceholder')}
+                  disabled={loading}
+                  className="
+                    flex-1 bg-tauri-dark rounded-xl px-4 py-2.5
+                    text-text text-sm placeholder-text-muted
+                    border border-tauri-border/50
+                    focus:outline-none focus:border-primary/60
+                    focus:shadow-[0_0_0_2px_rgba(36,200,219,0.2)]
+                    disabled:opacity-50 transition-all
+                  "
+                />
+                <button
+                  onClick={handleCustomAnswer}
+                  disabled={!customAnswer.trim() || loading}
+                  className="
+                    gradient-bg text-white px-4 py-2.5 rounded-xl
+                    text-sm font-medium flex items-center justify-center gap-2
+                    hover:shadow-lg hover:shadow-primary/30
+                    transition-all
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    disabled:hover:shadow-none
+                  "
+                >
+                  <svg
+                    className="w-4 h-4"
+                    style={{ transform: 'rotate(-45deg)' }}
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                  </svg>
+                  <span>{t('question.sendButton')}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 已回答状态 */}
+        {part.status === 'answered' && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-tauri-border/30">
+            <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+              <svg
+                className="w-3 h-3 text-green-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                {t('question.sendButton')}
-              </button>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={3}
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
             </div>
-          )}
-        </div>
-      )}
+            <span className="text-sm text-green-400 font-medium">
+              {t('question.answered', { answer: part.answer })}
+            </span>
+          </div>
+        )}
 
-      {part.status === 'answered' && (
-        <div className="text-sm text-green-400 font-medium">
-          ✓ {t('question.answered', { answer: part.answer })}
-        </div>
-      )}
-
-      {error && (
-        <div className="text-sm text-red-400">{error}</div>
-      )}
+        {error && (
+          <div className="mt-3 text-sm text-error bg-error/10 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -162,21 +162,24 @@ impl AIClient for OpenAiClient {
             .json(&body)
             .build()?;
         let max_retries = self.retry_config.max_retries;
-        let retry_msgs: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retry_msgs: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let notifier = {
             let retry_msgs = Arc::clone(&retry_msgs);
             Box::new(move |attempt: u32, msg: &str| {
                 let mut guard = retry_msgs.lock().unwrap();
-                guard.push(format!(
-                    "[API 重试 {}/{}] {}",
-                    attempt, max_retries, msg
-                ));
+                guard.push(format!("[API 重试 {}/{}] {}", attempt, max_retries, msg));
             })
         };
         let http_req_start = std::time::Instant::now();
-        let resp = send_with_retry(&self.client, request, &self.retry_config, Some(notifier)).await?;
+        let resp =
+            send_with_retry(&self.client, request, &self.retry_config, Some(notifier)).await?;
         let http_resp_elapsed_ms = http_req_start.elapsed().as_millis() as u64;
-        log_info!("[TTFT] HTTP response received | latency={}ms | url={}", http_resp_elapsed_ms, url);
+        log_info!(
+            "[TTFT] HTTP response received | latency={}ms | url={}",
+            http_resp_elapsed_ms,
+            url
+        );
         // send_with_retry 返回后，将所有重试通知通过 on_chunk 发送给客户端
         {
             let guard = retry_msgs.lock().unwrap();
@@ -276,9 +279,7 @@ fn flush_partial_tool_call(
     if let Some((Some(id), Some(name), args)) = index_to_tool.get(&index) {
         if !id.is_empty() && !name.is_empty() {
             // 尝试解析为 JSON，失败时包装为包含原始字符串的对象
-            let arguments = serde_json::from_str(args).unwrap_or_else(|_| {
-                json!({ "_raw": args })
-            });
+            let arguments = serde_json::from_str(args).unwrap_or_else(|_| json!({ "_raw": args }));
             on_chunk(Chunk {
                 content: ChunkContent::ToolUse(Part::ToolUse {
                     id: id.clone(),
@@ -306,9 +307,7 @@ fn flush_openai_tool_calls(
             name,
             args
         );
-        let arguments = serde_json::from_str(&args).unwrap_or_else(|_| {
-            json!({ "_raw": args })
-        });
+        let arguments = serde_json::from_str(&args).unwrap_or_else(|_| json!({ "_raw": args }));
         on_chunk(Chunk {
             content: ChunkContent::ToolUse(Part::ToolUse {
                 id,

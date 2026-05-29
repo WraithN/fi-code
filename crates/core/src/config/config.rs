@@ -238,7 +238,16 @@ fn try_reload_config(
         return;
     };
 
+    let old_extra: Option<Vec<String>> = cfg.skills.as_ref().map(|s| s.directories.clone());
     *cfg = new_config;
+    let new_extra: Option<Vec<String>> = cfg.skills.as_ref().map(|s| s.directories.clone());
+
+    if old_extra != new_extra {
+        let extra = new_extra.as_deref();
+        crate::skills::rescan_skills(extra);
+        log_info!("Skills 已根据新配置重新扫描");
+    }
+
     log_info!("配置已热重载");
 }
 

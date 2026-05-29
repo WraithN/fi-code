@@ -31,16 +31,16 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::agent::{agent_loop, profile::AgentProfile, LoopState};
-use fi_code_shared::dto::AgentType;
 use crate::log_debug;
 use crate::log_error;
 use crate::log_info;
 use crate::log_trace;
 use crate::session::message::{current_timestamp_ms, Message, Part, Role};
 use crate::session::session::{Session, SessionStatus};
+use crate::tools::basic_tools::BasicTool;
 use crate::tools::set_task_provider;
 use crate::utils::workspace::workspace_dir;
-use crate::tools::basic_tools::BasicTool;
+use fi_code_shared::dto::AgentType;
 
 use super::super::server::{check_auth, AppState};
 use super::super::transport::rpc::JsonRpcResponse;
@@ -188,7 +188,10 @@ fn inject_file_contents(message: &str) -> String {
                 injections.push(format!("File: {}\n```\n{}\n```", path_str, truncated));
             }
             None => {
-                injections.push(format!("File: {}\n```\n[File not found or not accessible]\n```", path_str));
+                injections.push(format!(
+                    "File: {}\n```\n[File not found or not accessible]\n```",
+                    path_str
+                ));
             }
         }
     }
@@ -350,9 +353,7 @@ async fn run_agent_chat(
             );
             // 当 Usage Part 到达时，同步发送 CompressionStatus 更新上下文比例
             if let SseEvent::Part {
-                part: fi_code_shared::dto::Part::Usage {
-                    input_tokens, ..
-                },
+                part: fi_code_shared::dto::Part::Usage { prompt_tokens: input_tokens, .. },
             } = &event
             {
                 let limit = crate::agent::compression::get_context_limit();
@@ -433,8 +434,8 @@ async fn run_agent_chat(
     let _ = sse_sender
         .send(SseEvent::Part {
             part: Part::Usage {
-                input_tokens: loop_state.token_usage.prompt_tokens,
-                output_tokens: loop_state.token_usage.completion_tokens,
+                prompt_tokens: loop_state.token_usage.prompt_tokens,
+                completion_tokens: loop_state.token_usage.completion_tokens,
                 latency_ms: 0,
                 cost: None,
             },

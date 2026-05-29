@@ -31,32 +31,39 @@ pub mod skill_type;
 pub use skill_type::{SkillEntry, SkillMetadata, SkillRegistry, SkillSourceType};
 
 // =============================================================================
-// 全局 LazyLock 注册表
+// 全局 RwLock 注册表
 // =============================================================================
-// `LazyLock` 是 Rust std 库提供的线程安全懒加载原语，初始化闭包只会执行一次。
-// 我们在程序启动时通过 `init_skills()` 显式触发初始化，避免首次调用时的延迟。
+// 使用 `RwLock` 替代 `LazyLock`，支持热重载时替换 registry 内容。
 
-use std::sync::LazyLock;
+use std::sync::RwLock;
 
-static SKILL_REGISTRY: LazyLock<SkillRegistry> = LazyLock::new(|| {
-    let workspace = crate::utils::workspace::workspace_dir();
-    scanner::scan_and_build_registry(&workspace)
+static SKILL_REGISTRY: RwLock<SkillRegistry> = RwLock::new(SkillRegistry {
+    version: String::new(),
+    entries: Vec::new(),
 });
 
-/// 显式触发 Skill 注册表的初始化。
+/// 初始化 Skill 注册表，支持传入用户自定义目录。
 ///
-/// 调用此方法可确保 `SKILL_REGISTRY` 在程序启动阶段完成扫描与加载，
-/// 而不是延迟到首次访问时才初始化。
-pub fn init_skills() {
-    let _ = LazyLock::force(&SKILL_REGISTRY);
+/// 调用此方法会重新扫描所有来源（系统默认 + 用户自定义）并替换 registry。
+pub fn init_skills(extra_dirs: Option<&[String]>) {
+    let workspace = crate::utils::workspace::workspace_dir();
+    let registry = scanner::scan_and_build_registry(&workspace, extra_dirs);
+    let mut lock = SKILL_REGISTRY.write().unwrap();
+    *lock = registry;
 }
 
-/// 获取全局 Skill 注册表的不可变引用。
+/// 重新扫描 Skill 注册表。
 ///
-/// 由于 `SkillRegistry` 本身是不可变的（通过 `LazyLock` 保护），
-/// 返回 `&'static` 生命周期引用可以安全地在整个程序生命周期内使用。
-pub fn get_registry() -> &'static SkillRegistry {
-    &SKILL_REGISTRY
+/// 与 `init_skills` 等价，用于热重载场景。
+pub fn rescan_skills(extra_dirs: Option<&[String]>) {
+    init_skills(extra_dirs);
+}
+
+/// 获取全局 Skill 注册表的快照（clone）。
+///
+/// 返回 clone 而非引用，避免长期持有读锁。
+pub fn get_registry() -> SkillRegistry {
+    SKILL_REGISTRY.read().unwrap().clone()
 }
 
 /// 加载指定 Skill 的完整内容。
@@ -64,10 +71,8 @@ pub fn get_registry() -> &'static SkillRegistry {
 /// 流程：
 /// 1. 通过 `name_or_id` 在注册表中查找对应条目
 /// 2. 读取条目的 `target_path`（符号链接指向的原始目录）
-/// 3. 调用 `loader::load_skill_full_content` 加载完整内容（正文 + REFERENCE.md + examples/*.md）
+/// 3. 调用 `loader::load_skill_full_content` 加载完整内容
 /// 4. 将结果包装在 `<skill name="..." id="...">...</skill>` XML 标签中返回
-///
-/// 如果找不到对应 Skill，返回包含 "not found" 的错误信息。
 pub fn load_skill_content(name_or_id: &str) -> Result<String, String> {
     let registry = get_registry();
     let entry = registry

@@ -23,18 +23,18 @@ use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::{json};
+use serde_json::json;
 use tokio::sync::mpsc;
 
 use fi_code_core::commands::registry::CommandOutput;
-use fi_code_shared::dto::CommandMeta;
 use fi_code_core::log_debug;
 use fi_code_core::log_info;
 use fi_code_core::log_warn;
 use fi_code_core::server::transport::rpc::{JsonRpcRequest, JsonRpcResponse};
 use fi_code_core::server::transport::sse::SseEvent;
-use fi_code_shared::tui_event::{AppEvent, LogLevel, LogLine};
 use fi_code_core::utils::log_store::LogEntry;
+use fi_code_shared::dto::CommandMeta;
+use fi_code_shared::tui_event::{AppEvent, LogLevel, LogLine};
 
 /// 单个会话的元信息。
 #[derive(Debug, Deserialize)]
@@ -242,13 +242,26 @@ impl TuiClient {
                                 format!("Error(msg={})", message)
                             }
                             SseEvent::Done { .. } => "Done".to_string(),
-                            SseEvent::AgentInfo { agent_type, agent_name } => {
+                            SseEvent::AgentInfo {
+                                agent_type,
+                                agent_name,
+                            } => {
                                 format!("AgentInfo(type={:?} name={})", agent_type, agent_name)
                             }
-                            SseEvent::CompressionStatus { is_compressing, progress, context_ratio, .. } => {
-                                format!("CompressionStatus(compressing={} progress={}% ratio={}%)", is_compressing, progress, context_ratio)
+                            SseEvent::CompressionStatus {
+                                is_compressing,
+                                progress,
+                                context_ratio,
+                                ..
+                            } => {
+                                format!(
+                                    "CompressionStatus(compressing={} progress={}% ratio={}%)",
+                                    is_compressing, progress, context_ratio
+                                )
                             }
-                            SseEvent::PermissionAsk { tool_name, risk, .. } => {
+                            SseEvent::PermissionAsk {
+                                tool_name, risk, ..
+                            } => {
                                 format!("PermissionAsk(tool={} risk={})", tool_name, risk)
                             }
                             SseEvent::QuestionAsk { question, .. } => {
@@ -376,7 +389,12 @@ impl TuiClient {
             "tool_call_id": tool_call_id,
             "approved": approved
         });
-        log_debug!("[Client] HTTP -> POST {} | tool_call_id={} | approved={}", url, tool_call_id, approved);
+        log_debug!(
+            "[Client] HTTP -> POST {} | tool_call_id={} | approved={}",
+            url,
+            tool_call_id,
+            approved
+        );
 
         let resp = self.client.post(&url).json(&body).send().await?;
         let status = resp.status();

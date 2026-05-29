@@ -182,7 +182,10 @@ mod tests {
         let now_ns: u128 = 10 * 24 * 3600 * 1_000_000_000;
         let max_age_ns: u128 = 7 * 24 * 3600 * 1_000_000_000;
 
-        let line_a = format!(r#"{{"span_id":"a","name":"x","end_time_unix_nano":{}}}"#, now_ns);
+        let line_a = format!(
+            r#"{{"span_id":"a","name":"x","end_time_unix_nano":{}}}"#,
+            now_ns
+        );
         let line_b = r#"{"span_id":"b","name":"x","end_time_unix_nano":0}"#.to_string();
         let line_c = r#"{"span_id":"c","name":"x","end_time_unix_nano":1}"#.to_string();
         let lines_owned = vec![line_a, line_b, line_c];

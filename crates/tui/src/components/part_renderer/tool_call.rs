@@ -37,11 +37,16 @@ fn format_tool_use(name: &str, arguments: &serde_json::Value) -> (String, String
         let mut extracted = serde_json::Map::new();
         for key in ["path", "content", "command", "pattern", "url", "message"] {
             if let Some(pos) = raw.find(&format!("\"{}\"", key)) {
-                let start = raw[pos + key.len() + 3..].find('"').map(|i| pos + key.len() + 3 + i + 1);
+                let start = raw[pos + key.len() + 3..]
+                    .find('"')
+                    .map(|i| pos + key.len() + 3 + i + 1);
                 if let Some(start) = start {
                     if let Some(end) = raw[start..].find('"') {
                         let value = &raw[start..start + end];
-                        extracted.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+                        extracted.insert(
+                            key.to_string(),
+                            serde_json::Value::String(value.to_string()),
+                        );
                     }
                 }
             }
@@ -82,7 +87,10 @@ fn format_tool_use(name: &str, arguments: &serde_json::Value) -> (String, String
         "grep" => {
             let pattern = get("pattern");
             let path = get("path");
-            ("🔍 grep".to_string(), format!("pattern: {}\npath: {}", pattern, path))
+            (
+                "🔍 grep".to_string(),
+                format!("pattern: {}\npath: {}", pattern, path),
+            )
         }
         "web_fetch" => {
             let url = get("url");
@@ -156,7 +164,10 @@ pub struct ToolCallRenderer;
 
 impl PartRenderer for ToolCallRenderer {
     fn height(&self, part: &Part, width: u16) -> u16 {
-        if let Part::ToolUse { name, arguments, .. } = part {
+        if let Part::ToolUse {
+            name, arguments, ..
+        } = part
+        {
             let (_, body) = format_tool_use(name, arguments);
             let lines: Vec<&str> = body.lines().collect();
             let mut h = 0u16;
@@ -171,14 +182,18 @@ impl PartRenderer for ToolCallRenderer {
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect, part: &Part, theme: &Theme, skip_lines: u16) {
-        if let Part::ToolUse { name, arguments, .. } = part {
+        if let Part::ToolUse {
+            name, arguments, ..
+        } = part
+        {
             let (title, body) = format_tool_use(name, arguments);
             // 根据工具类型分配不同的边框颜色，提升视觉辨识度
             let border_color = match name.as_str() {
                 "bash" => theme.warning,
                 "write" | "edit" => theme.user,
                 "read" | "read_file" | "grep" | "glob" => theme.brand,
-                "git_status" | "git_diff" | "git_add" | "git_commit" | "git_log" | "git_worktree" | "git" => theme.success,
+                "git_status" | "git_diff" | "git_add" | "git_commit" | "git_log"
+                | "git_worktree" | "git" => theme.success,
                 "web_fetch" => theme.accent_hover,
                 "create_task_plan" | "handle_task_plan" => theme.user,
                 "ask_for_question" => theme.warning,
@@ -187,10 +202,7 @@ impl PartRenderer for ToolCallRenderer {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(border_color))
-                .title(
-                    Line::from(title)
-                        .style(theme.style_primary().add_modifier(Modifier::BOLD)),
-                );
+                .title(Line::from(title).style(theme.style_primary().add_modifier(Modifier::BOLD)));
             let paragraph = Paragraph::new(body)
                 .wrap(Wrap { trim: true })
                 .style(theme.style_primary())

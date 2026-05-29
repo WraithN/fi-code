@@ -91,10 +91,7 @@ mod tests {
 
     #[test]
     fn test_file_type_from_path_rust() {
-        assert_eq!(
-            file_type_from_path("src/main.rs"),
-            Some("rust".to_string())
-        );
+        assert_eq!(file_type_from_path("src/main.rs"), Some("rust".to_string()));
     }
 
     #[test]
@@ -119,10 +116,7 @@ mod tests {
 
     #[test]
     fn test_file_type_from_path_python() {
-        assert_eq!(
-            file_type_from_path("script.py"),
-            Some("python".to_string())
-        );
+        assert_eq!(file_type_from_path("script.py"), Some("python".to_string()));
     }
 
     #[test]

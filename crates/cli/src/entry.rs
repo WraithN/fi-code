@@ -28,8 +28,8 @@ use clap::Parser;
 use colored::Colorize;
 
 use crate::cli_args::{Args, Commands};
-use fi_code_core::agent::{agent_loop, LoopState};
 use fi_code_core::agent::AgentType;
+use fi_code_core::agent::{agent_loop, LoopState};
 use fi_code_core::commands::slash::{SlashCommand, SlashCommandHandler};
 use fi_code_core::config::Config;
 use fi_code_core::mcp::manager::McpManager;
@@ -48,10 +48,13 @@ pub enum EntryOutcome {
 }
 
 async fn start_web_mode(port: u16) -> anyhow::Result<EntryOutcome> {
-    fi_code_core::skills::init_skills();
-
     let config = Arc::new(std::sync::RwLock::new(fi_code_core::config::Config::load()?));
     let _watcher = fi_code_core::config::config::spawn_watcher(Arc::clone(&config))?;
+    {
+        let cfg = config.read().map_err(|_| anyhow::anyhow!("配置锁中毒"))?;
+        let extra = cfg.skills.as_ref().map(|s| s.directories.as_slice());
+        fi_code_core::skills::init_skills(extra);
+    }
 
     // 初始化 MCP Manager
     {
@@ -104,6 +107,11 @@ pub async fn run() -> Result<EntryOutcome> {
     match args.command {
         Some(Commands::Server { port }) => {
             let config = Arc::new(RwLock::new(Config::load()?));
+            {
+                let cfg = config.read().map_err(|_| anyhow!("配置锁中毒"))?;
+                let extra = cfg.skills.as_ref().map(|s| s.directories.as_slice());
+                fi_code_core::skills::init_skills(extra);
+            }
             let provider = Arc::new(RwLock::new(Provider::new(Arc::clone(&config))?));
             fi_code_core::server::Server::new(provider, config, port)
                 .run()
@@ -157,7 +165,15 @@ pub async fn run() -> Result<EntryOutcome> {
         .canonicalize()
         .with_context(|| format!("无法解析工作目录: {:?}", workspace))?;
     set_workspace(workspace.clone());
-    fi_code_core::skills::init_skills();
+
+    // 先加载 config，再用 config 中的自定义目录初始化 skills
+    let config = Arc::new(RwLock::new(Config::load()?));
+    let _watcher = fi_code_core::config::config::spawn_watcher(Arc::clone(&config))?;
+    {
+        let cfg = config.read().map_err(|_| anyhow!("配置锁中毒"))?;
+        let extra = cfg.skills.as_ref().map(|s| s.directories.as_slice());
+        fi_code_core::skills::init_skills(extra);
+    }
     log_info!(
         "skills initialized | count={}",
         fi_code_core::skills::get_registry().entries.len()
@@ -188,9 +204,6 @@ pub async fn run() -> Result<EntryOutcome> {
         handle_session_arg(session_arg, &session_manager)?;
         return Ok(EntryOutcome::Completed);
     }
-
-    let config = Arc::new(RwLock::new(Config::load()?));
-    let _watcher = fi_code_core::config::config::spawn_watcher(Arc::clone(&config))?;
 
     // 初始化 MCP Manager
     {
@@ -334,7 +347,16 @@ async fn run_single_command(
 
     let mut state = LoopState::new(session.messages.clone());
     let client = provider.get_client()?;
-    agent_loop(client.as_ref(), &mut state, agent_type, &mut None, &mut None, None, None).await?;
+    agent_loop(
+        client.as_ref(),
+        &mut state,
+        agent_type,
+        &mut None,
+        &mut None,
+        None,
+        None,
+    )
+    .await?;
 
     handle_task_plan_and_save(
         provider,
@@ -427,7 +449,16 @@ async fn run_interactive(
 
                 let mut state = LoopState::new(session.messages.clone());
                 let client = provider.get_client()?;
-                agent_loop(client.as_ref(), &mut state, agent_type, &mut None, &mut None, None, None).await?;
+                agent_loop(
+                    client.as_ref(),
+                    &mut state,
+                    agent_type,
+                    &mut None,
+                    &mut None,
+                    None,
+                    None,
+                )
+                .await?;
 
                 handle_task_plan_and_save(
                     Arc::clone(&provider),

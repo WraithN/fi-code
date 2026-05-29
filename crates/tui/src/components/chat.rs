@@ -30,16 +30,16 @@ use ratatui::{
     Frame,
 };
 
+use crate::components::part_renderer::PartRendererRegistry;
+use crate::components::Component;
+use crate::theme::Theme;
 use fi_code_core::log_debug;
 use fi_code_core::log_error;
 use fi_code_core::log_info;
 use fi_code_core::log_warn;
 use fi_code_core::server::transport::sse::SseEvent;
 use fi_code_core::session::message::Part;
-use crate::components::part_renderer::PartRendererRegistry;
-use crate::components::Component;
 use fi_code_shared::tui_event::AppEvent;
-use crate::theme::Theme;
 
 /// 对话回合：包含用户消息和 AI 回复的 Part 列表。
 #[derive(Debug, Clone)]
@@ -68,14 +68,14 @@ pub enum MessageRole {
 /// 聊天组件，负责显示对话历史、处理 SSE 流式消息、渲染生成动画。
 pub struct Chat {
     pub turns: Vec<Turn>,                             // 对话回合列表
-    messages: Vec<Message>,                       // 保留的系统消息/错误消息（向后兼容）
+    messages: Vec<Message>,                           // 保留的系统消息/错误消息（向后兼容）
     pub scroll_offset: usize,                         // 垂直滚动偏移（以行为单位）
     pub is_generating: bool,                          // 是否正在生成回复
-    spinner_frame: usize,                         // 当前 spinner 动画帧索引
+    spinner_frame: usize,                             // 当前 spinner 动画帧索引
     pub card_hit_areas: RefCell<Vec<(String, Rect)>>, // 卡片点击区域（card_id -> rect）
-    pub renderer_registry: PartRendererRegistry,  // Part 渲染器注册表
-    last_inner_size: Cell<Option<Rect>>,          // 最近一次 draw 的 inner 区域尺寸（用于滚动 clamp）
-    pub auto_scroll: bool,                         // 是否自动滚动到底部跟随新内容
+    pub renderer_registry: PartRendererRegistry,      // Part 渲染器注册表
+    last_inner_size: Cell<Option<Rect>>, // 最近一次 draw 的 inner 区域尺寸（用于滚动 clamp）
+    pub auto_scroll: bool,               // 是否自动滚动到底部跟随新内容
 }
 
 // SPINNER_FRAMES 已从 fi_code_shared::constants 导入
@@ -171,9 +171,9 @@ impl Chat {
                     text.push_str(content);
                 } else {
                     // 移除空的 Reasoning（Thinking）占位 Part
-                    last_turn.parts.retain(|p| {
-                        !(matches!(p, Part::Reasoning { thinking, .. } if thinking.is_empty()))
-                    });
+                    last_turn.parts.retain(
+                        |p| !(matches!(p, Part::Reasoning { thinking, .. } if thinking.is_empty())),
+                    );
                     last_turn.parts.push(Part::Text {
                         text: content.clone(),
                     });
@@ -185,8 +185,15 @@ impl Chat {
                         log_info!("[Client] Chat SSE ToolUse | id={}", id);
                         // 按 id 查找已有的 ToolUse 并更新，避免重复 push
                         if let Some(existing) = last_turn.parts.iter_mut().find_map(|p| {
-                            if let Part::ToolUse { id: existing_id, .. } = p {
-                                if existing_id == id { Some(p) } else { None }
+                            if let Part::ToolUse {
+                                id: existing_id, ..
+                            } = p
+                            {
+                                if existing_id == id {
+                                    Some(p)
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
                             }
@@ -301,7 +308,9 @@ impl Chat {
                     let mut seq_end = part_idx;
                     while seq_end < turn.parts.len() {
                         match &turn.parts[seq_end] {
-                            Part::ToolUse { .. } | Part::ToolResult { .. } | Part::ToolError { .. } => seq_end += 1,
+                            Part::ToolUse { .. }
+                            | Part::ToolResult { .. }
+                            | Part::ToolError { .. } => seq_end += 1,
                             _ => break,
                         }
                     }
@@ -452,7 +461,9 @@ impl Component for Chat {
 
                     while seq_end < turn.parts.len() {
                         match &turn.parts[seq_end] {
-                            Part::ToolUse { .. } | Part::ToolResult { .. } | Part::ToolError { .. } => {
+                            Part::ToolUse { .. }
+                            | Part::ToolResult { .. }
+                            | Part::ToolError { .. } => {
                                 seq_end += 1;
                             }
                             _ => break,
@@ -472,7 +483,11 @@ impl Component for Chat {
                             Part::ToolUse { name, .. } => {
                                 seq_tool_names.push(name);
                             }
-                            Part::ToolResult { content, duration_ms, .. } => {
+                            Part::ToolResult {
+                                content,
+                                duration_ms,
+                                ..
+                            } => {
                                 if content.contains("Error") || content.contains("error") {
                                     seq_error += 1;
                                 } else {
@@ -499,16 +514,35 @@ impl Component for Chat {
                     if tool_count > 1 {
                         let group_title = if seq_duration > 0 {
                             if seq_duration < 1000 {
-                                format!("▶ {} 个工具 | ✅ {} | ❌ {} | ⏱ {}ms", seq_tool_names.len(), seq_success, seq_error, seq_duration)
+                                format!(
+                                    "▶ {} 个工具 | ✅ {} | ❌ {} | ⏱ {}ms",
+                                    seq_tool_names.len(),
+                                    seq_success,
+                                    seq_error,
+                                    seq_duration
+                                )
                             } else {
-                                format!("▶ {} 个工具 | ✅ {} | ❌ {} | ⏱ {:.1}s", seq_tool_names.len(), seq_success, seq_error, seq_duration as f64 / 1000.0)
+                                format!(
+                                    "▶ {} 个工具 | ✅ {} | ❌ {} | ⏱ {:.1}s",
+                                    seq_tool_names.len(),
+                                    seq_success,
+                                    seq_error,
+                                    seq_duration as f64 / 1000.0
+                                )
                             }
                         } else {
-                            format!("▶ {} 个工具 | ✅ {} | ❌ {}", seq_tool_names.len(), seq_success, seq_error)
+                            format!(
+                                "▶ {} 个工具 | ✅ {} | ❌ {}",
+                                seq_tool_names.len(),
+                                seq_success,
+                                seq_error
+                            )
                         };
                         let group_line = Line::from(vec![Span::styled(
                             group_title,
-                            Style::default().fg(theme.text_muted).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(theme.text_muted)
+                                .add_modifier(Modifier::BOLD),
                         )]);
                         let group_para = Paragraph::new(group_line);
                         let group_h = 1u16;
@@ -548,12 +582,27 @@ impl Component for Chat {
             if turn_tool_count > 0 {
                 let summary = if turn_total_duration > 0 {
                     if turn_total_duration < 1000 {
-                        format!("共 {} 个工具 | ✅ {} | ❌ {} | ⏱ {}ms", turn_tool_count, turn_success_count, turn_error_count, turn_total_duration)
+                        format!(
+                            "共 {} 个工具 | ✅ {} | ❌ {} | ⏱ {}ms",
+                            turn_tool_count,
+                            turn_success_count,
+                            turn_error_count,
+                            turn_total_duration
+                        )
                     } else {
-                        format!("共 {} 个工具 | ✅ {} | ❌ {} | ⏱ {:.1}s", turn_tool_count, turn_success_count, turn_error_count, turn_total_duration as f64 / 1000.0)
+                        format!(
+                            "共 {} 个工具 | ✅ {} | ❌ {} | ⏱ {:.1}s",
+                            turn_tool_count,
+                            turn_success_count,
+                            turn_error_count,
+                            turn_total_duration as f64 / 1000.0
+                        )
                     }
                 } else {
-                    format!("共 {} 个工具 | ✅ {} | ❌ {}", turn_tool_count, turn_success_count, turn_error_count)
+                    format!(
+                        "共 {} 个工具 | ✅ {} | ❌ {}",
+                        turn_tool_count, turn_success_count, turn_error_count
+                    )
                 };
                 let summary_line = Line::from(vec![Span::styled(
                     summary,
@@ -571,10 +620,9 @@ impl Component for Chat {
         for msg in &self.messages {
             let (prefix, style) = match msg.role {
                 MessageRole::User => ("You", theme.style_user().add_modifier(Modifier::BOLD)),
-                MessageRole::Assistant => (
-                    "◆ AI",
-                    theme.style_brand().add_modifier(Modifier::BOLD),
-                ),
+                MessageRole::Assistant => {
+                    ("◆ AI", theme.style_brand().add_modifier(Modifier::BOLD))
+                }
                 MessageRole::System => ("ℹ️ ", Style::default().fg(theme.warning)),
                 MessageRole::Error => ("❌ ", Style::default().fg(theme.error)),
             };
@@ -606,10 +654,7 @@ impl Component for Chat {
             if let Some((rect, _)) = clip_rect(current_y, spinner_height) {
                 let spinner_line = Line::from(vec![
                     Span::styled("◆ ", theme.style_brand()),
-                    Span::styled(
-                        "AI ",
-                        theme.style_brand().add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("AI ", theme.style_brand().add_modifier(Modifier::BOLD)),
                     Span::styled(spinner, theme.style_brand()),
                 ]);
                 frame.render_widget(Paragraph::new(spinner_line), rect);
@@ -635,16 +680,12 @@ impl Component for Chat {
             if let Some((rect, _)) = clip_rect(current_y, status_height) {
                 let status_line = Line::from(vec![
                     Span::styled("◆ ", theme.style_brand()),
-                    Span::styled(
-                        "AI ",
-                        theme.style_brand().add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled("AI ", theme.style_brand().add_modifier(Modifier::BOLD)),
                     Span::styled("●", Style::default().fg(dot_color)),
                 ]);
                 frame.render_widget(Paragraph::new(status_line), rect);
             }
         }
-
     }
 
     fn handle_event(&mut self, event: &Event, _focus: bool) -> Option<AppEvent> {
@@ -718,8 +759,8 @@ impl Component for Chat {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyEvent, MouseEvent};
     use super::*;
+    use crossterm::event::{KeyEvent, MouseEvent};
 
     #[test]
     fn test_add_user_message_creates_turn() {
@@ -896,7 +937,10 @@ mod tests {
         chat.add_user_message("another line to make it scrollable for sure");
 
         let max_offset = chat.max_scroll_offset();
-        assert!(max_offset > 2, "测试前提：内容应足够长，允许从 max-2 滚到底部");
+        assert!(
+            max_offset > 2,
+            "测试前提：内容应足够长，允许从 max-2 滚到底部"
+        );
 
         chat.scroll_offset = max_offset.saturating_sub(2);
         chat.auto_scroll = false;
@@ -941,6 +985,9 @@ mod tests {
         let mut chat = Chat::new();
         chat.auto_scroll = false;
         chat.clear_messages();
-        assert!(chat.auto_scroll, "clear_messages 应重置 auto_scroll 为 true");
+        assert!(
+            chat.auto_scroll,
+            "clear_messages 应重置 auto_scroll 为 true"
+        );
     }
 }

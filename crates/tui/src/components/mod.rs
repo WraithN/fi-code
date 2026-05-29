@@ -22,17 +22,17 @@
 use crossterm::event::Event;
 use ratatui::{layout::Rect, Frame};
 
-use fi_code_shared::tui_event::AppEvent;
 use crate::theme::Theme;
+use fi_code_shared::tui_event::AppEvent;
 
 pub mod card_widget;
 pub mod chat;
 pub mod input;
 pub mod left_drawer;
 pub mod log_window;
+pub mod part_renderer;
 pub mod question_dialog;
 pub mod right_drawer;
-pub mod part_renderer;
 pub mod status_bar;
 
 pub use log_window::LogWindow;

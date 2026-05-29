@@ -99,7 +99,9 @@ pub async fn handle_permission_respond(
     );
 
     match crate::permission::respond_permission(&req.tool_call_id, req.approved).await {
-        Ok(()) => Json(ApiResponse::success(serde_json::json!({ "received": true }))),
+        Ok(()) => Json(ApiResponse::success(
+            serde_json::json!({ "received": true }),
+        )),
         Err(e) => Json(ApiResponse::error(e, "PERMISSION_NOT_FOUND")),
     }
 }
@@ -117,7 +119,9 @@ pub async fn handle_question_respond(
 
     let answer: QuestionAnswer = req.answer.into();
     match crate::tools::respond_question(&req.tool_call_id, answer).await {
-        Ok(()) => Json(ApiResponse::success(serde_json::json!({ "received": true }))),
+        Ok(()) => Json(ApiResponse::success(
+            serde_json::json!({ "received": true }),
+        )),
         Err(e) => Json(ApiResponse::error(e, "QUESTION_NOT_FOUND")),
     }
 }

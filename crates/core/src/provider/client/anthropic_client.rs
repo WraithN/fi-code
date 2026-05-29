@@ -128,18 +128,17 @@ impl AIClient for AnthropicClient {
             .json(&body)
             .build()?;
         let max_retries = self.retry_config.max_retries;
-        let retry_msgs: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let retry_msgs: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let notifier = {
             let retry_msgs = Arc::clone(&retry_msgs);
             Box::new(move |attempt: u32, msg: &str| {
                 let mut guard = retry_msgs.lock().unwrap();
-                guard.push(format!(
-                    "[API 重试 {}/{}] {}",
-                    attempt, max_retries, msg
-                ));
+                guard.push(format!("[API 重试 {}/{}] {}", attempt, max_retries, msg));
             })
         };
-        let resp = send_with_retry(&self.client, request, &self.retry_config, Some(notifier)).await?;
+        let resp =
+            send_with_retry(&self.client, request, &self.retry_config, Some(notifier)).await?;
         // send_with_retry 返回后，将所有重试通知通过 on_chunk 发送给客户端
         {
             let guard = retry_msgs.lock().unwrap();

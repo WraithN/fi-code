@@ -36,9 +36,18 @@ pub struct Config {
     // observability::config::ObservabilityConfig::resolve 进一步与环境变量合并
     #[serde(default)]
     pub observability: Option<ObservabilityRawConfig>,
+    /// Skill 自定义扫描目录配置
+    #[serde(default)]
+    pub skills: Option<SkillConfig>,
     /// 加载此配置的文件路径（运行时填充，不序列化）
     #[serde(skip)]
     pub source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct SkillConfig {
+    #[serde(default)]
+    pub directories: Vec<String>,
 }
 
 // observability 节点原始 schema（仅做反序列化映射，不含业务行为）

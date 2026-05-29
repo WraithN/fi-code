@@ -31,7 +31,12 @@ pub struct ToolErrorRenderer;
 
 impl PartRenderer for ToolErrorRenderer {
     fn height(&self, part: &Part, width: u16) -> u16 {
-        if let Part::ToolError { error_message, for_context_only, .. } = part {
+        if let Part::ToolError {
+            error_message,
+            for_context_only,
+            ..
+        } = part
+        {
             // 如果标记为仅用于上下文，不占用空间
             if *for_context_only {
                 return 0;
@@ -49,7 +54,12 @@ impl PartRenderer for ToolErrorRenderer {
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect, part: &Part, theme: &Theme, skip_lines: u16) {
-        if let Part::ToolError { error_message, for_context_only, .. } = part {
+        if let Part::ToolError {
+            error_message,
+            for_context_only,
+            ..
+        } = part
+        {
             // 如果标记为仅用于上下文，不渲染
             if *for_context_only {
                 return;

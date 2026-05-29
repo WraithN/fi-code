@@ -1,12 +1,34 @@
 import React, { useState } from 'react';
 import { Turn } from '../../types/turn';
 import { PartRenderer } from '../part-renderers/registry';
+import { useUIStore } from '../../stores/uiStore';
 
-export const TurnGroup: React.FC<{ turn: Turn }> = ({ turn }) => {
+interface TurnGroupProps {
+  turn: Turn;
+}
+
+export const TurnGroup = React.memo<TurnGroupProps>(({ turn }) => {
   const [showDetails, setShowDetails] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const { setInputText, triggerInputFocus } = useUIStore();
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(turn.userMessage);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 静默忽略复制失败
+    }
+  };
+
+  const handleEdit = () => {
+    setInputText(turn.userMessage);
+    triggerInputFocus();
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-6 mb-6 border-b border-tauri-border/30 last:border-b-0">
       {/* 用户消息 */}
       <div className="flex justify-end">
         <div className="max-w-[65%] glass border border-tauri-primary/30 rounded-2xl px-6 py-4 card-hover">
@@ -20,6 +42,42 @@ export const TurnGroup: React.FC<{ turn: Turn }> = ({ turn }) => {
           </div>
           <div className="text-sm text-gray-100 whitespace-pre-wrap break-words">
             {turn.userMessage}
+          </div>
+          {/* 操作按钮：复制 + 编辑 */}
+          <div className="mt-2 flex items-center justify-end gap-3">
+            <button
+              onClick={handleEdit}
+              aria-label="编辑消息"
+              title="编辑"
+              className="flex items-center gap-1 text-gray-400 hover:text-tauri-primary transition-colors cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+              </svg>
+              <span className="text-xs">编辑</span>
+            </button>
+            <button
+              onClick={handleCopy}
+              aria-label="复制消息"
+              title="复制"
+              className="flex items-center gap-1 text-gray-400 hover:text-tauri-primary transition-colors cursor-pointer"
+            >
+              {copied ? (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
+                  </svg>
+                  <span className="text-xs">已复制</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                  <span className="text-xs">复制</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -51,45 +109,33 @@ export const TurnGroup: React.FC<{ turn: Turn }> = ({ turn }) => {
                   </span>
                 )}
               </div>
-              <button 
+              <button
                 onClick={() => setShowDetails(!showDetails)}
-                className="p-1 hover:bg-tauri-card rounded-lg transition-colors"
+                className="text-gray-400 hover:text-gray-200 transition-colors"
               >
                 {showDetails ? (
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 12H4"/>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"/>
                   </svg>
                 ) : (
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
                   </svg>
                 )}
               </button>
             </div>
 
-            <div className={showDetails ? "space-y-4" : "hidden"}>
-              {turn.parts.length === 0 && !turn.isComplete ? (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <div className="w-2 h-2 bg-tauri-primary rounded-full animate-pulse"></div>
-                  <div className="w-2 h-2 bg-tauri-secondary rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                  <div className="w-2 h-2 bg-tauri-primary rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                  <span className="text-sm">Thinking...</span>
-                </div>
-              ) : (
-                turn.parts
-                  .filter(part => {
-                    if ('for_context_only' in part) {
-                      return !part.for_context_only;
-                    }
-                    return true;
-                  })
-                  .map((part, i) => <PartRenderer key={i} part={part} turnId={turn.id} partIndex={i} />)
-              )}
-            </div>
-
-            {!showDetails && turn.parts.length > 0 && (
-              <div className="text-sm text-gray-500">
-                {turn.parts.length} part{turn.parts.length !== 1 ? 's' : ''} hidden
+            {showDetails && (
+              <div className="space-y-3">
+                {turn.parts.map((part, index) => (
+                  <PartRenderer
+                    key={index}
+                    part={part}
+                    turnId={turn.id}
+                    partIndex={index}
+                    isComplete={turn.isComplete}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -97,4 +143,6 @@ export const TurnGroup: React.FC<{ turn: Turn }> = ({ turn }) => {
       </div>
     </div>
   );
-};
+});
+
+TurnGroup.displayName = 'TurnGroup';

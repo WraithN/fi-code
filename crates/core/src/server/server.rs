@@ -100,7 +100,6 @@ impl Server {
             })
             .unwrap_or(4040);
 
-
         let sessions = Arc::new(HttpSessionManager::new());
         let (commands, current_theme) = super::commands::build_command_registry(sessions.clone());
 
@@ -351,6 +350,7 @@ pub mod test_helpers {
                 allowed_origins: None,
             }),
             observability: None,
+            skills: None,
             source_path: Some("/test/config.json".to_string()),
         }
     }

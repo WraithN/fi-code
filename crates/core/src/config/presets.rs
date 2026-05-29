@@ -66,6 +66,7 @@ mod tests {
             mcp: None,
             server: None,
             observability: None,
+            skills: None,
             source_path: None,
         };
         merge_presets(&mut config);
@@ -78,6 +79,7 @@ mod tests {
         use super::super::models::{ProviderOptions, ProviderType};
         let mut config = Config {
             model: "gpt-4o".to_string(),
+            skills: None,
             provider: {
                 let mut p = HashMap::new();
                 p.insert(
@@ -114,6 +116,7 @@ mod tests {
         use super::super::models::{ProviderOptions, ProviderType};
         let mut config = Config {
             model: "gpt-4o".to_string(),
+            skills: None,
             provider: {
                 let mut p = HashMap::new();
                 p.insert(

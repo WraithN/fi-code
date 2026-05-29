@@ -114,28 +114,28 @@ mod tests {
     #[test]
     fn test_usage_serde() {
         let part = Part::Usage {
-            input_tokens: 1024,
-            output_tokens: 512,
+            prompt_tokens: 1024,
+            completion_tokens: 512,
             latency_ms: 1200,
             cost: Some(0.003),
         };
         let json = serde_json::to_string(&part).unwrap();
         assert!(json.contains("\"type\":\"usage\""));
-        assert!(json.contains("\"input_tokens\":1024"));
-        assert!(json.contains("\"output_tokens\":512"));
+        assert!(json.contains("\"prompt_tokens\":1024"));
+        assert!(json.contains("\"completion_tokens\":512"));
         assert!(json.contains("\"latency_ms\":1200"));
         assert!(json.contains("\"cost\":0.003"));
 
         let deserialized: Part = serde_json::from_str(&json).unwrap();
         match deserialized {
             Part::Usage {
-                input_tokens,
-                output_tokens,
+                prompt_tokens,
+                completion_tokens,
                 latency_ms,
                 cost,
             } => {
-                assert_eq!(input_tokens, 1024);
-                assert_eq!(output_tokens, 512);
+                assert_eq!(prompt_tokens, 1024);
+                assert_eq!(completion_tokens, 512);
                 assert_eq!(latency_ms, 1200);
                 assert_eq!(cost, Some(0.003));
             }

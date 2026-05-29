@@ -15,9 +15,8 @@ interface SubmenuItem {
 }
 
 export const InputBox: React.FC = () => {
-  const [input, setInput] = useState('');
   const { send } = useChatStream();
-  const { commands, themeName, setThemeName } = useUIStore();
+  const { commands, themeName, setThemeName, inputText: input, setInputText: setInput, inputFocusTrigger } = useUIStore();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 一级菜单状态
@@ -44,6 +43,15 @@ export const InputBox: React.FC = () => {
   const filteredCommands = filterText
     ? commands.filter((c) => c.name.startsWith(filterText))
     : commands;
+
+  // 当外部触发聚焦（如编辑按钮）时，自动调整高度并聚焦
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    el.focus();
+  }, [inputFocusTrigger]);
 
   useEffect(() => {
     if (highlightIndex >= filteredCommands.length) {

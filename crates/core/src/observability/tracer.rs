@@ -39,12 +39,12 @@ use opentelemetry::{global, KeyValue};
 use opentelemetry_sdk::trace::{BatchConfigBuilder, BatchSpanProcessor, TracerProvider};
 use opentelemetry_sdk::Resource;
 
+use crate::log_warn;
 use crate::observability::attrs::{LANGFUSE_ENVIRONMENT, LANGFUSE_RELEASE};
 use crate::observability::config::ObservabilityConfig;
 use crate::observability::exporter::local_jsonl::LocalJsonlExporter;
 use crate::observability::exporter::otlp_http::OtlpHttpExporter;
 use crate::observability::exporter::CompositeSpanExporter;
-use crate::{log_warn};
 
 // ===== 模块级常量（AGENTS.md §6.11 禁止魔法值）=====
 
@@ -85,7 +85,9 @@ static PROVIDER: OnceLock<TracerProvider> = OnceLock::new();
 /// 解析并创建日志目录。失败时冒泡 Err（init 的唯一硬错误）。
 fn logs_dir() -> anyhow::Result<PathBuf> {
     let proj = directories::ProjectDirs::from(PROJECT_QUALIFIER, PROJECT_ORG, PROJECT_APP)
-        .ok_or_else(|| anyhow::anyhow!("无法解析 fi-code 配置目录（ProjectDirs::from 返回 None）"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("无法解析 fi-code 配置目录（ProjectDirs::from 返回 None）")
+        })?;
     let dir = proj.config_dir().join(LOGS_DIR_NAME);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -200,7 +202,10 @@ fn build_otlp(cfg: &ObservabilityConfig) -> Option<OtlpHttpExporter> {
     match OtlpHttpExporter::new(&cfg.langfuse.host, pk, sk) {
         Ok(e) => Some(e),
         Err(err) => {
-            log_warn!("[observability] OtlpHttpExporter 构造失败，仅写本地：{}", err);
+            log_warn!(
+                "[observability] OtlpHttpExporter 构造失败，仅写本地：{}",
+                err
+            );
             None
         }
     }

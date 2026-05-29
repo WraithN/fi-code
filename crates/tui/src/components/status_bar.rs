@@ -203,8 +203,8 @@ impl StatusBar {
         let pct = (ratio * 100.0) as u8;
 
         if self.is_compressing {
-            let c_filled = ((self.compression_progress as f64 / 100.0) * CTX_BAR_WIDTH as f64)
-                .ceil() as usize;
+            let c_filled =
+                ((self.compression_progress as f64 / 100.0) * CTX_BAR_WIDTH as f64).ceil() as usize;
             let c_empty = CTX_BAR_WIDTH - c_filled;
             format!("[{}{}] 🗜️", "█".repeat(c_filled), "░".repeat(c_empty))
         } else {

@@ -221,11 +221,7 @@ impl PermissionChecker {
 
         match action {
             PermissionAction::Deny => {
-                log_debug!(
-                    "permission denied | tool={} | reason={}",
-                    tool_name,
-                    reason
-                );
+                log_debug!("permission denied | tool={} | reason={}", tool_name, reason);
                 Err(format!("Permission denied: {}", reason))
             }
             PermissionAction::Allow => {
@@ -252,12 +248,19 @@ impl PermissionChecker {
     /// 检查工具调用权限（CLI 模式）
     /// - dangerous=true: Ask 级别直接通过
     /// - dangerous=false: Ask 级别拒绝，Deny 级别拒绝
-    pub fn check_cli(tool_name: &str, input: &HashMap<String, serde_json::Value>) -> Result<(), String> {
+    pub fn check_cli(
+        tool_name: &str,
+        input: &HashMap<String, serde_json::Value>,
+    ) -> Result<(), String> {
         let (action, _risk, reason) = PermissionAction::match_action(tool_name, input);
 
         match action {
             PermissionAction::Deny => {
-                log_debug!("permission denied (cli) | tool={} | reason={}", tool_name, reason);
+                log_debug!(
+                    "permission denied (cli) | tool={} | reason={}",
+                    tool_name,
+                    reason
+                );
                 Err(format!("Permission denied: {}", reason))
             }
             PermissionAction::Allow => {
@@ -266,10 +269,16 @@ impl PermissionChecker {
             }
             PermissionAction::Ask => {
                 if is_cli_dangerous() {
-                    log_debug!("permission auto-approved (cli dangerous) | tool={}", tool_name);
+                    log_debug!(
+                        "permission auto-approved (cli dangerous) | tool={}",
+                        tool_name
+                    );
                     Ok(())
                 } else {
-                    log_debug!("permission denied (cli) | tool={} | use --dangerous to allow", tool_name);
+                    log_debug!(
+                        "permission denied (cli) | tool={} | use --dangerous to allow",
+                        tool_name
+                    );
                     Err(format!(
                         "Permission denied: {}. Use --dangerous flag to allow this operation in CLI mode.",
                         reason
@@ -369,20 +378,20 @@ mod tests {
     #[test]
     fn test_cli_dangerous() {
         let params = HashMap::new();
-        
+
         // 默认非 dangerous 模式：Ask 被拒绝
         set_cli_dangerous(false);
         assert!(PermissionChecker::check_cli("write", &params).is_err());
-        
+
         // dangerous 模式：Ask 通过
         set_cli_dangerous(true);
         assert!(PermissionChecker::check_cli("write", &params).is_ok());
-        
+
         // dangerous 模式：Deny 仍然拒绝
         let mut bash_params = HashMap::new();
         bash_params.insert("command".to_string(), serde_json::json!("sudo ls"));
         assert!(PermissionChecker::check_cli("bash", &bash_params).is_err());
-        
+
         // 恢复默认值
         set_cli_dangerous(false);
     }

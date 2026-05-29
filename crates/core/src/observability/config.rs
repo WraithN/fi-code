@@ -88,14 +88,12 @@ impl ObservabilityConfig {
         let environment = read_env(ENV_LANGFUSE_ENVIRONMENT)
             .or_else(|| raw_langfuse.and_then(|l| l.environment.clone()));
 
-        let release = read_env(ENV_LANGFUSE_RELEASE)
-            .or_else(|| raw_langfuse.and_then(|l| l.release.clone()));
+        let release =
+            read_env(ENV_LANGFUSE_RELEASE).or_else(|| raw_langfuse.and_then(|l| l.release.clone()));
 
         // config 中显式 enabled=true（缺省视为 true，让 key 是否存在决定）
         // 经典语义：只要两把 key 都有，并且没有显式 disable，就算启用
-        let config_enabled = raw_langfuse
-            .and_then(|l| l.enabled)
-            .unwrap_or(true);
+        let config_enabled = raw_langfuse.and_then(|l| l.enabled).unwrap_or(true);
 
         let enabled = config_enabled && public_key.is_some() && secret_key.is_some();
 

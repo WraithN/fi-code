@@ -5,14 +5,14 @@ use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
-    text::{Line},
+    text::Line,
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
 use crate::components::Component;
-use fi_code_shared::tui_event::AppEvent;
 use crate::theme::Theme;
+use fi_code_shared::tui_event::AppEvent;
 
 /// 会话元信息。
 #[derive(Debug, Clone)]
@@ -70,17 +70,26 @@ impl Component for RightDrawer {
         let viewport_height = inner.height as usize;
 
         let mut all_lines = vec![
-            Line::styled("📋 Tasks", theme.style_primary().add_modifier(Modifier::BOLD)),
+            Line::styled(
+                "📋 Tasks",
+                theme.style_primary().add_modifier(Modifier::BOLD),
+            ),
             Line::styled("  No active tasks", theme.style_muted()),
             Line::styled("", theme.style_primary()),
-            Line::styled("📁 Changes", theme.style_primary().add_modifier(Modifier::BOLD)),
+            Line::styled(
+                "📁 Changes",
+                theme.style_primary().add_modifier(Modifier::BOLD),
+            ),
             Line::styled("  No changes yet", theme.style_muted()),
         ];
 
         for (i, session) in self.sessions.iter().enumerate() {
             if i == 0 {
                 all_lines.push(Line::styled("", theme.style_primary()));
-                all_lines.push(Line::styled("📝 Sessions", theme.style_primary().add_modifier(Modifier::BOLD)));
+                all_lines.push(Line::styled(
+                    "📝 Sessions",
+                    theme.style_primary().add_modifier(Modifier::BOLD),
+                ));
             }
             let marker = if session.is_current { "● " } else { "○ " };
             let style = if i == self.selected_index {

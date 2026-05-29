@@ -171,7 +171,9 @@ mod tests {
 
     #[test]
     fn test_tool_filter_allow_list() {
-        let allow_list: HashSet<String> = ["read".to_string(), "grep".to_string()].into_iter().collect();
+        let allow_list: HashSet<String> = ["read".to_string(), "grep".to_string()]
+            .into_iter()
+            .collect();
         let filter = ToolFilter::AllowList(allow_list);
 
         assert!(filter.allows("read"));
@@ -190,7 +192,9 @@ mod tests {
         ]);
 
         // AllowList 仅保留白名单工具
-        let allow_list: HashSet<String> = ["read".to_string(), "grep".to_string()].into_iter().collect();
+        let allow_list: HashSet<String> = ["read".to_string(), "grep".to_string()]
+            .into_iter()
+            .collect();
         let allow_filter = ToolFilter::AllowList(allow_list);
         let allowed = allow_filter.apply(&schema);
         let allowed_names: Vec<&str> = allowed
@@ -202,7 +206,9 @@ mod tests {
         assert_eq!(allowed_names, vec!["read", "grep"]);
 
         // BlockList 排除黑名单工具
-        let block_list: HashSet<String> = ["bash".to_string(), "write".to_string()].into_iter().collect();
+        let block_list: HashSet<String> = ["bash".to_string(), "write".to_string()]
+            .into_iter()
+            .collect();
         let block_filter = ToolFilter::BlockList(block_list);
         let blocked = block_filter.apply(&schema);
         let blocked_names: Vec<&str> = blocked

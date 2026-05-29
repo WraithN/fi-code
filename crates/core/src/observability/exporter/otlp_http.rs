@@ -55,11 +55,7 @@ pub struct OtlpHttpExporter {
 impl OtlpHttpExporter {
     /// host 形如 "https://cloud.langfuse.com"；尾部斜杠会被自动去掉。
     pub fn new(host: &str, public_key: &str, secret_key: &str) -> anyhow::Result<Self> {
-        let endpoint = format!(
-            "{}{}",
-            host.trim_end_matches('/'),
-            LANGFUSE_INGESTION_PATH
-        );
+        let endpoint = format!("{}{}", host.trim_end_matches('/'), LANGFUSE_INGESTION_PATH);
         let auth_raw = format!("{}:{}", public_key, secret_key);
         let auth_b64 = base64::engine::general_purpose::STANDARD.encode(auth_raw);
 

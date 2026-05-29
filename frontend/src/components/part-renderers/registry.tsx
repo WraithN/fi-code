@@ -13,20 +13,30 @@ import { SystemNoticePart } from './SystemNoticePart';
 import { InteractivePermissionPart } from './InteractivePermissionPart';
 import { InteractiveQuestionPart } from './InteractiveQuestionPart';
 
-const partRenderers: Record<string, React.FC<{ part: Part }>> = {
-  text: TextPart as React.FC<{ part: Part }>,
-  thinking: ThinkingPart as React.FC<{ part: Part }>,
-  tool_use: ToolUsePart as React.FC<{ part: Part }>,
-  tool_result: ToolResultPart as React.FC<{ part: Part }>,
-  tool_error: ToolErrorPart as React.FC<{ part: Part }>,
-  code_block: CodeBlockPart as React.FC<{ part: Part }>,
-  image: ImagePart as React.FC<{ part: Part }>,
-  usage: UsagePart as React.FC<{ part: Part }>,
-  wave_marker: WaveMarkerPart as React.FC<{ part: Part }>,
-  system_notice: SystemNoticePart as React.FC<{ part: Part }>,
+const partRenderers: Record<string, React.FC<{ part: Part; isComplete?: boolean }>> = {
+  text: TextPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  thinking: ThinkingPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  tool_use: ToolUsePart as React.FC<{ part: Part; isComplete?: boolean }>,
+  tool_result: ToolResultPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  tool_error: ToolErrorPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  code_block: CodeBlockPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  image: ImagePart as React.FC<{ part: Part; isComplete?: boolean }>,
+  usage: UsagePart as React.FC<{ part: Part; isComplete?: boolean }>,
+  wave_marker: WaveMarkerPart as React.FC<{ part: Part; isComplete?: boolean }>,
+  system_notice: SystemNoticePart as React.FC<{ part: Part; isComplete?: boolean }>,
 };
 
-export function PartRenderer({ part, turnId, partIndex }: { part: Part; turnId?: string; partIndex?: number }) {
+export function PartRenderer({
+  part,
+  turnId,
+  partIndex,
+  isComplete,
+}: {
+  part: Part;
+  turnId?: string;
+  partIndex?: number;
+  isComplete?: boolean;
+}) {
   if (part.type === 'interactive_permission' && turnId !== undefined && partIndex !== undefined) {
     return <InteractivePermissionPart turnId={turnId} partIndex={partIndex} part={part as any} />;
   }
@@ -37,5 +47,5 @@ export function PartRenderer({ part, turnId, partIndex }: { part: Part; turnId?:
   if (!Renderer) {
     return <div className="text-xs text-error">Unknown part type: {part.type}</div>;
   }
-  return <Renderer part={part} />;
+  return <Renderer part={part} isComplete={isComplete} />;
 }

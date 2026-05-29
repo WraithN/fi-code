@@ -36,10 +36,7 @@ fn format_tool_result(content: &str) -> (String, String) {
         // 提取常见字段
         if let Some(obj) = json.as_object() {
             // 检查是否包含 success 字段
-            let is_success = obj
-                .get("success")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+            let is_success = obj.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
 
             let title = if is_success {
                 "✅ Result".to_string()
@@ -93,7 +90,13 @@ pub struct ToolResultRenderer;
 
 impl PartRenderer for ToolResultRenderer {
     fn height(&self, part: &Part, width: u16) -> u16 {
-        if let Part::ToolResult { content, duration_ms, for_context_only, .. } = part {
+        if let Part::ToolResult {
+            content,
+            duration_ms,
+            for_context_only,
+            ..
+        } = part
+        {
             // 如果标记为仅用于上下文，不占用空间
             if *for_context_only {
                 return 0;
@@ -114,7 +117,13 @@ impl PartRenderer for ToolResultRenderer {
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect, part: &Part, theme: &Theme, skip_lines: u16) {
-        if let Part::ToolResult { content, duration_ms, for_context_only, .. } = part {
+        if let Part::ToolResult {
+            content,
+            duration_ms,
+            for_context_only,
+            ..
+        } = part
+        {
             // 如果标记为仅用于上下文，不渲染
             if *for_context_only {
                 return;
@@ -138,10 +147,7 @@ impl PartRenderer for ToolResultRenderer {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(border_color))
-                .title(
-                    Line::from(title)
-                        .style(theme.style_primary().add_modifier(Modifier::BOLD)),
-                );
+                .title(Line::from(title).style(theme.style_primary().add_modifier(Modifier::BOLD)));
 
             let mut text_lines = body.lines().map(|s| s.to_string()).collect::<Vec<_>>();
             if let Some(ref ft) = footer_text {

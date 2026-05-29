@@ -40,20 +40,31 @@ use std::sync::{Arc, RwLock};
 /// 5. TUI 退出后自动关闭 Server。
 pub async fn run_tui_mode(port: Option<u16>) -> anyhow::Result<()> {
     let config = Arc::new(RwLock::new(fi_code_core::config::Config::load()?));
-    let provider = Arc::new(RwLock::new(fi_code_core::provider::Provider::new(Arc::clone(&config))?));
+    {
+        let cfg = config.read().map_err(|_| anyhow::anyhow!("配置锁中毒"))?;
+        let extra = cfg.skills.as_ref().map(|s| s.directories.as_slice());
+        fi_code_core::skills::init_skills(extra);
+    }
+    let provider = Arc::new(RwLock::new(fi_code_core::provider::Provider::new(
+        Arc::clone(&config),
+    )?));
 
     let log_broadcaster = Arc::new(fi_code_core::utils::log_store::LogBroadcaster::new(1000));
     fi_code_core::utils::log::set_global_log_broadcaster(Arc::clone(&log_broadcaster));
 
     // 启动 Server（后台任务）
-    let server = fi_code_core::server::Server::new(Arc::clone(&provider), Arc::clone(&config), port)
-        .with_log_broadcaster(log_broadcaster);
+    let server =
+        fi_code_core::server::Server::new(Arc::clone(&provider), Arc::clone(&config), port)
+            .with_log_broadcaster(log_broadcaster);
     let server_handle = tokio::spawn(async move {
         server.run().await;
     });
 
     // 等待 Server 启动
-    tokio::time::sleep(std::time::Duration::from_millis(TUI_STARTUP_POLL_INTERVAL_MS)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(
+        TUI_STARTUP_POLL_INTERVAL_MS,
+    ))
+    .await;
 
     // 测试模式下不启动 TUI，直接返回，便于 E2E 测试验证后端服务
     if std::env::var("FI_CODE_TEST_MODE").is_ok() {

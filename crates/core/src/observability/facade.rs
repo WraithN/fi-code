@@ -196,12 +196,10 @@ impl Drop for TurnSpan {
 
 /// 启动 TurnSpan；必须传 parent（chat span 或上一轮 turn）。
 pub fn start_turn_span(parent: Option<&Context>, turn_index: usize) -> TurnSpan {
-    let builder = tracer()
-        .span_builder(SPAN_NAME_TURN)
-        .with_attributes(vec![
-            KeyValue::new(LANGFUSE_OBS_TYPE, OBS_TYPE_SPAN),
-            KeyValue::new(FI_TURN_INDEX, turn_index as i64),
-        ]);
+    let builder = tracer().span_builder(SPAN_NAME_TURN).with_attributes(vec![
+        KeyValue::new(LANGFUSE_OBS_TYPE, OBS_TYPE_SPAN),
+        KeyValue::new(FI_TURN_INDEX, turn_index as i64),
+    ]);
     let span = start_span_with_parent(builder, parent);
     TurnSpan {
         cx: Context::current_with_span(span),
@@ -248,9 +246,10 @@ impl LlmGeneration {
 
     /// 记录 finish_reason（如 "stop" / "tool_calls" / "length"）。
     pub fn record_finish_reason(&self, reason: &str) {
-        self.cx
-            .span()
-            .set_attribute(KeyValue::new(GEN_AI_RESPONSE_FINISH_REASONS, reason.to_string()));
+        self.cx.span().set_attribute(KeyValue::new(
+            GEN_AI_RESPONSE_FINISH_REASONS,
+            reason.to_string(),
+        ));
     }
 }
 
@@ -267,15 +266,13 @@ pub fn start_llm_generation(
     provider: &str,
     messages_json: &str,
 ) -> LlmGeneration {
-    let builder = tracer()
-        .span_builder(SPAN_NAME_LLM)
-        .with_attributes(vec![
-            KeyValue::new(LANGFUSE_OBS_TYPE, OBS_TYPE_GENERATION),
-            KeyValue::new(GEN_AI_SYSTEM, provider.to_string()),
-            KeyValue::new(GEN_AI_REQUEST_MODEL, model.to_string()),
-            KeyValue::new(LANGFUSE_OBS_INPUT, redacted(messages_json)),
-            KeyValue::new(LANGFUSE_OBS_MODEL_NAME, model.to_string()),
-        ]);
+    let builder = tracer().span_builder(SPAN_NAME_LLM).with_attributes(vec![
+        KeyValue::new(LANGFUSE_OBS_TYPE, OBS_TYPE_GENERATION),
+        KeyValue::new(GEN_AI_SYSTEM, provider.to_string()),
+        KeyValue::new(GEN_AI_REQUEST_MODEL, model.to_string()),
+        KeyValue::new(LANGFUSE_OBS_INPUT, redacted(messages_json)),
+        KeyValue::new(LANGFUSE_OBS_MODEL_NAME, model.to_string()),
+    ]);
     let span = start_span_with_parent(builder, parent);
     LlmGeneration {
         cx: Context::current_with_span(span),
@@ -418,12 +415,7 @@ mod tests {
         let chat_cx = chat.context();
 
         let turn = start_turn_span(Some(&chat_cx), 0);
-        let turn_tid = turn
-            .context()
-            .span()
-            .span_context()
-            .trace_id()
-            .to_string();
+        let turn_tid = turn.context().span().span_context().trace_id().to_string();
 
         assert_eq!(
             chat_tid, turn_tid,

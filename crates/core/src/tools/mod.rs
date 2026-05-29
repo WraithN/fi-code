@@ -22,13 +22,13 @@
 use crate::log_debug;
 use crate::log_info;
 use crate::log_trace;
-use rust_i18n::t;
 use crate::mcp::manager::McpManager;
 use crate::provider::Provider;
 use crate::session::message::Part;
 use crate::tui_event::{AppEvent, QuestionAnswer};
 use fi_code_shared::constants::*;
 use fi_code_shared::dto::AgentType;
+use rust_i18n::t;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use tokio::sync::mpsc;
@@ -50,10 +50,10 @@ pub mod windows_compat;
 // =============================================================================
 // `use` 把其他模块中的类型引入当前作用域，避免每次写全限定路径
 
+use crate::utils::file_type::file_type_from_path;
 use basic_tools::BasicTool;
 use tools_registry::ToolsRegistry;
 use tools_type::{ToolHandler, ToolParameter, ToolParams};
-use crate::utils::file_type::file_type_from_path;
 
 // 全局事件发送器（TuiApp 初始化时设置）
 static EVENT_TX: RwLock<Option<mpsc::Sender<AppEvent>>> = RwLock::new(None);
@@ -82,8 +82,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 type QuestionWebResponseSender = oneshot::Sender<QuestionAnswer>;
-static QUESTION_RESPONSES: LazyLock<tokio::sync::Mutex<HashMap<String, QuestionWebResponseSender>>> =
-    LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
+static QUESTION_RESPONSES: LazyLock<
+    tokio::sync::Mutex<HashMap<String, QuestionWebResponseSender>>,
+> = LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
 /// 发送问题询问请求，等待用户通过 API 响应（60 秒超时）
 pub async fn wait_question_response(tool_call_id: &str) -> Result<QuestionAnswer, String> {
@@ -97,7 +98,11 @@ pub async fn wait_question_response(tool_call_id: &str) -> Result<QuestionAnswer
 
     match tokio::time::timeout(Duration::from_secs(60), rx).await {
         Ok(Ok(answer)) => {
-            log_debug!("question resolved | tool_call_id={} | answer={:?}", tool_call_id, answer);
+            log_debug!(
+                "question resolved | tool_call_id={} | answer={:?}",
+                tool_call_id,
+                answer
+            );
             Ok(answer)
         }
         Ok(Err(_)) => {
@@ -178,22 +183,25 @@ struct ReadHandler;
 
 impl ToolHandler for ReadHandler {
     fn call(&self, _name: &str, params: ToolParams) -> Result<String, String> {
-        let (path, limit) = match &params[..] {
+        let (path, limit, offset) = match &params[..] {
             [ToolParameter::Json(v)] => {
                 let path = get_json_param(v, "path");
                 let limit = v.get("limit").and_then(|x| x.as_u64()).map(|n| n as usize);
-                (path, limit)
+                let offset = v.get("offset").and_then(|x| x.as_u64()).map(|n| n as usize);
+                (path, limit, offset)
             }
-            [ToolParameter::String(p), ToolParameter::Integer(l)] => (p.clone(), Some(*l as usize)),
-            [ToolParameter::String(p)] => (p.clone(), None),
-            _ => ("".to_string(), None),
+            [ToolParameter::String(p), ToolParameter::Integer(l)] => {
+                (p.clone(), Some(*l as usize), None)
+            }
+            [ToolParameter::String(p)] => (p.clone(), None, None),
+            _ => ("".to_string(), None, None),
         };
 
         if path.is_empty() {
             return Err("Missing path parameter".to_string());
         }
 
-        BasicTool::run_read(&path, limit)
+        BasicTool::run_read(&path, limit, offset)
     }
 }
 
@@ -640,7 +648,7 @@ static REGISTRY: LazyLock<ToolsRegistry> = LazyLock::new(|| {
         .register(
             "read",
             "Read the contents of a file.",
-            r#"{"type":"object","properties":{"path":{"type":"string"},"limit":{"type":"integer"}},"required":["path"]}"#,
+            r#"{"type":"object","properties":{"path":{"type":"string"},"limit":{"type":"integer","description":"最多返回多少行"},"offset":{"type":"integer","description":"起始行号（1-based，从第几行开始读取）"}},"required":["path"]}"#,
             Box::new(ReadHandler),
         )
         .expect("register read tool failed");
@@ -1147,10 +1155,13 @@ pub async fn execute_tool_calls(
                 // 权限检查：系统级权限校验（Allow / Ask / Deny）
                 // =============================================================================
                 let input: HashMap<String, serde_json::Value> = match &arguments {
-                    serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    serde_json::Value::Object(map) => {
+                        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                    }
                     _ => HashMap::new(),
                 };
-                let (action, risk, reason) = crate::permission::PermissionAction::match_action(&name, &input);
+                let (action, risk, reason) =
+                    crate::permission::PermissionAction::match_action(&name, &input);
 
                 // 启动 ToolSpan：以 Turn 为父，记录 tool_name / id / args
                 // 必须在权限检查之前启动，以便在 Ask 流程中调用 add_permission_event 记录用户决策事件
@@ -1164,7 +1175,11 @@ pub async fn execute_tool_calls(
                 match action {
                     crate::permission::PermissionAction::Deny => {
                         let error_msg = format!("{}: {}", t!("error.permissionDenied"), reason);
-                        log_debug!("execute_tool_call denied | name={} | reason={}", name, reason);
+                        log_debug!(
+                            "execute_tool_call denied | name={} | reason={}",
+                            name,
+                            reason
+                        );
                         let error_part = Part::ToolError {
                             tool_call_id: id.clone(),
                             content: error_msg.clone(),
@@ -1186,13 +1201,19 @@ pub async fn execute_tool_calls(
                     crate::permission::PermissionAction::Ask => {
                         if is_web {
                             // 从工具参数中提取路径信息，附加到 reason 中
-                            let path_info = arguments.get("path")
+                            let path_info = arguments
+                                .get("path")
                                 .and_then(|v| v.as_str())
                                 .map(|p| format!(" (目标文件: {})", p))
                                 .unwrap_or_default();
                             let enriched_reason = format!("{}{}", reason, path_info);
                             // Web/Server/TUI 模式：发送 PermissionAsk SSE 事件并等待用户确认
-                            log_debug!("execute_tool_call ask (web) | name={} | risk={:?} | reason={}", name, risk, enriched_reason);
+                            log_debug!(
+                                "execute_tool_call ask (web) | name={} | risk={:?} | reason={}",
+                                name,
+                                risk,
+                                enriched_reason
+                            );
                             if let Ok(mut guard) = cb.lock() {
                                 if let Some(ref mut callback) = *guard {
                                     let _ = callback(SseEvent::PermissionAsk {
@@ -1205,14 +1226,22 @@ pub async fn execute_tool_calls(
                             }
                             // 记录权限询问开始时间，用于上报到 ToolSpan 的 permission_ask 事件
                             let ask_start = std::time::Instant::now();
-                            match crate::permission::wait_permission_response(&id, &name, risk, &reason).await {
+                            match crate::permission::wait_permission_response(
+                                &id, &name, risk, &reason,
+                            )
+                            .await
+                            {
                                 Ok(true) => {
                                     tool_span.add_permission_event(
                                         "approved",
                                         true,
                                         ask_start.elapsed().as_millis() as u64,
                                     );
-                                    log_debug!("execute_tool_call approved | name={} | id={}", name, id);
+                                    log_debug!(
+                                        "execute_tool_call approved | name={} | id={}",
+                                        name,
+                                        id
+                                    );
                                 }
                                 Ok(false) => {
                                     tool_span.add_permission_event(
@@ -1221,7 +1250,11 @@ pub async fn execute_tool_calls(
                                         ask_start.elapsed().as_millis() as u64,
                                     );
                                     let error_msg = t!("error.permissionDenied").to_string();
-                                    log_debug!("execute_tool_call rejected | name={} | id={}", name, id);
+                                    log_debug!(
+                                        "execute_tool_call rejected | name={} | id={}",
+                                        name,
+                                        id
+                                    );
                                     let error_part = Part::ToolError {
                                         tool_call_id: id.clone(),
                                         content: error_msg.clone(),
@@ -1243,8 +1276,13 @@ pub async fn execute_tool_calls(
                                         false,
                                         ask_start.elapsed().as_millis() as u64,
                                     );
-                                    let error_msg = format!("{}: {}", t!("error.permissionDenied"), e);
-                                    log_debug!("execute_tool_call permission error | name={} | err={}", name, e);
+                                    let error_msg =
+                                        format!("{}: {}", t!("error.permissionDenied"), e);
+                                    log_debug!(
+                                        "execute_tool_call permission error | name={} | err={}",
+                                        name,
+                                        e
+                                    );
                                     let error_part = Part::ToolError {
                                         tool_call_id: id.clone(),
                                         content: error_msg.clone(),
@@ -1263,8 +1301,14 @@ pub async fn execute_tool_calls(
                             }
                         } else {
                             // CLI 模式：使用 check_cli（默认拒绝，--dangerous 时通过）
-                            if let Err(err) = crate::permission::PermissionChecker::check_cli(&name, &input) {
-                                log_debug!("execute_tool_call denied (cli) | name={} | err={}", name, err);
+                            if let Err(err) =
+                                crate::permission::PermissionChecker::check_cli(&name, &input)
+                            {
+                                log_debug!(
+                                    "execute_tool_call denied (cli) | name={} | err={}",
+                                    name,
+                                    err
+                                );
                                 let error_part = Part::ToolError {
                                     tool_call_id: id.clone(),
                                     content: err.clone(),
@@ -1283,7 +1327,9 @@ pub async fn execute_tool_calls(
                 // ask_for_question 在 Web 模式下通过 SSE 与前端交互
                 let (content, is_error, duration_ms) = if name == "ask_for_question" && is_web {
                     let input: HashMap<String, serde_json::Value> = match &arguments {
-                        serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                        serde_json::Value::Object(map) => {
+                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                        }
                         _ => HashMap::new(),
                     };
 
@@ -1331,11 +1377,20 @@ pub async fn execute_tool_calls(
                             let result = serde_json::to_string(&answer)
                                 .map_err(|e| format!("Serialize error: {}", e))
                                 .unwrap_or_default();
-                            log_debug!("execute_tool_call question answered | name={} | id={}", name, id);
+                            log_debug!(
+                                "execute_tool_call question answered | name={} | id={}",
+                                name,
+                                id
+                            );
                             (result, false, 0)
                         }
                         Err(e) => {
-                            log_debug!("execute_tool_call question error | name={} | id={} | err={}", name, id, e);
+                            log_debug!(
+                                "execute_tool_call question error | name={} | id={} | err={}",
+                                name,
+                                id,
+                                e
+                            );
                             (format!("Error: {}", e), true, 0)
                         }
                     }
@@ -1348,7 +1403,9 @@ pub async fn execute_tool_calls(
 
                 // 从参数中提取路径（用于 read/write/edit）
                 let input: HashMap<String, serde_json::Value> = match &arguments {
-                    serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    serde_json::Value::Object(map) => {
+                        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                    }
                     _ => HashMap::new(),
                 };
                 let file_path = input.get("path").and_then(|v| v.as_str());
@@ -1369,12 +1426,24 @@ pub async fn execute_tool_calls(
                 } else if name == "write" {
                     let is_new = content.contains("New file:");
                     if is_new {
-                        format!("✓ write: {} ({}ms) — 新增文件", file_path.unwrap_or("unknown"), duration_ms)
+                        format!(
+                            "✓ write: {} ({}ms) — 新增文件",
+                            file_path.unwrap_or("unknown"),
+                            duration_ms
+                        )
                     } else {
-                        format!("✓ write: {} ({}ms)", file_path.unwrap_or("unknown"), duration_ms)
+                        format!(
+                            "✓ write: {} ({}ms)",
+                            file_path.unwrap_or("unknown"),
+                            duration_ms
+                        )
                     }
                 } else if name == "edit" {
-                    format!("✓ edit: {} ({}ms)", file_path.unwrap_or("unknown"), duration_ms)
+                    format!(
+                        "✓ edit: {} ({}ms)",
+                        file_path.unwrap_or("unknown"),
+                        duration_ms
+                    )
                 } else {
                     content.clone()
                 };
@@ -1397,11 +1466,11 @@ pub async fn execute_tool_calls(
                                 id,
                                 display_content.len()
                             );
-                            
+
                             // 构建工具结果元数据
                             let line_count = content.lines().count();
                             let byte_count = content.len();
-                            
+
                             // 快速判断是否会被压缩，而不是真正调用 compress_tool_result（性能问题！）
                             let threshold = match name.as_str() {
                                 "bash" => fi_code_shared::constants::BASH_COMPRESS_THRESHOLD,
@@ -1409,7 +1478,7 @@ pub async fn execute_tool_calls(
                                 _ => fi_code_shared::constants::DEFAULT_COMPRESS_THRESHOLD,
                             };
                             let is_compressed = byte_count > threshold as usize;
-                            
+
                             let metadata = serde_json::json!({
                                 "tool_name": name,
                                 "tool_call_id": id,
@@ -1419,8 +1488,8 @@ pub async fn execute_tool_calls(
                                 "truncated": content.len() > 50000,
                                 "content_type": if is_read_write_edit { "file" } else { "text" },
                             });
-                            
-                             // 正常时发送 ToolResult（元数据标题）
+
+                            // 正常时发送 ToolResult（元数据标题）
                             let _ = callback(SseEvent::Part {
                                 part: Part::ToolResult {
                                     tool_call_id: id.clone(),
@@ -1452,7 +1521,7 @@ pub async fn execute_tool_calls(
                 }
 
                 let mut parts = Vec::new();
-                
+
                 if is_error {
                     parts.push(Part::ToolError {
                         tool_call_id: id,
@@ -1461,13 +1530,17 @@ pub async fn execute_tool_calls(
                         for_context_only: true,
                     });
                 } else {
-                    let compressed = crate::agent::compression::compress_tool_result(&content, is_aggressive, Some(&name));
-                    
+                    let compressed = crate::agent::compression::compress_tool_result(
+                        &content,
+                        is_aggressive,
+                        Some(&name),
+                    );
+
                     // 构建工具结果元数据
                     let line_count = content.lines().count();
                     let byte_count = content.len();
                     let is_compressed = compressed != content;
-                    
+
                     let metadata = serde_json::json!({
                         "tool_name": name,
                         "tool_call_id": id,
@@ -1477,7 +1550,7 @@ pub async fn execute_tool_calls(
                         "truncated": content.len() > 50000,
                         "content_type": if is_read_write_edit { "file" } else { "text" },
                     });
-                    
+
                     parts.push(Part::ToolResult {
                         tool_call_id: id.clone(),
                         content: display_content,
@@ -1485,7 +1558,7 @@ pub async fn execute_tool_calls(
                         metadata: Some(metadata),
                         for_context_only: true,
                     });
-                    
+
                     // 对于 read/write/edit，额外返回 CodeBlock（用于保存到会话历史）
                     if is_read_write_edit {
                         let is_meta_only = content.starts_with("New file:")
@@ -1501,7 +1574,7 @@ pub async fn execute_tool_calls(
                         }
                     }
                 }
-                
+
                 parts
             })
         })
@@ -1512,18 +1585,16 @@ pub async fn execute_tool_calls(
     // 恢复 on_tool_event 回调，以便调用方可以继续使用它进行后续的 SSE 发送
     // 安全地将回调恢复到原位置，避免 Poison 错误
     match Arc::try_unwrap(shared_cb) {
-        Ok(mutex) => {
-            match mutex.into_inner() {
-                Ok(mut callback) => {
-                    if let Some(cb) = callback.take() {
-                        *on_tool_event = Some(cb);
-                    }
-                }
-                Err(_) => {
-                    log_debug!("Failed to restore SSE callback due to lock poisoning");
+        Ok(mutex) => match mutex.into_inner() {
+            Ok(mut callback) => {
+                if let Some(cb) = callback.take() {
+                    *on_tool_event = Some(cb);
                 }
             }
-        }
+            Err(_) => {
+                log_debug!("Failed to restore SSE callback due to lock poisoning");
+            }
+        },
         Err(_) => {
             log_debug!("Could not restore SSE callback, references still held");
         }
@@ -2044,13 +2115,11 @@ mod tests {
     #[tokio::test]
     async fn test_execute_tool_calls_plan_agent_blocks_write() {
         use fi_code_shared::dto::AgentType;
-        let parts = vec![
-            Part::ToolUse {
-                id: "1".to_string(),
-                name: "write".to_string(),
-                arguments: serde_json::json!({"path": "/tmp/test.txt", "content": "hello"}),
-            },
-        ];
+        let parts = vec![Part::ToolUse {
+            id: "1".to_string(),
+            name: "write".to_string(),
+            arguments: serde_json::json!({"path": "/tmp/test.txt", "content": "hello"}),
+        }];
         let results = execute_tool_calls(&parts, AgentType::Plan, &mut None, false, None).await;
         assert_eq!(results.len(), 1);
         match &results[0] {
@@ -2067,13 +2136,11 @@ mod tests {
         use fi_code_shared::dto::AgentType;
         // 开启 dangerous 模式以通过系统权限检查（CLI 模式下 Ask 默认拒绝）
         crate::permission::set_cli_dangerous(true);
-        let parts = vec![
-            Part::ToolUse {
-                id: "1".to_string(),
-                name: "write".to_string(),
-                arguments: serde_json::json!({"path": "/tmp/test_fi_code_build.txt", "content": "hello"}),
-            },
-        ];
+        let parts = vec![Part::ToolUse {
+            id: "1".to_string(),
+            name: "write".to_string(),
+            arguments: serde_json::json!({"path": "/tmp/test_fi_code_build.txt", "content": "hello"}),
+        }];
         let results = execute_tool_calls(&parts, AgentType::Build, &mut None, false, None).await;
         // 恢复默认值
         crate::permission::set_cli_dangerous(false);

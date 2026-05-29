@@ -84,7 +84,10 @@ mod tests {
         assert_eq!(LANGFUSE_SESSION_ID, "langfuse.session.id");
         assert_eq!(LANGFUSE_TRACE_NAME, "langfuse.trace.name");
         assert_eq!(LANGFUSE_OBS_TYPE, "langfuse.observation.type");
-        assert_eq!(LANGFUSE_OBS_USAGE_DETAILS, "langfuse.observation.usage_details");
+        assert_eq!(
+            LANGFUSE_OBS_USAGE_DETAILS,
+            "langfuse.observation.usage_details"
+        );
         // metadata 前缀末尾必须带点，便于业务侧拼接子键
         assert!(LANGFUSE_TRACE_METADATA_PREFIX.ends_with('.'));
     }
@@ -98,7 +101,10 @@ mod tests {
         assert_eq!(GEN_AI_USAGE_INPUT_TOKENS, "gen_ai.usage.input_tokens");
         assert_eq!(GEN_AI_USAGE_OUTPUT_TOKENS, "gen_ai.usage.output_tokens");
         assert_eq!(GEN_AI_USAGE_TOTAL_TOKENS, "gen_ai.usage.total_tokens");
-        assert_eq!(GEN_AI_RESPONSE_FINISH_REASONS, "gen_ai.response.finish_reasons");
+        assert_eq!(
+            GEN_AI_RESPONSE_FINISH_REASONS,
+            "gen_ai.response.finish_reasons"
+        );
     }
 
     #[test]

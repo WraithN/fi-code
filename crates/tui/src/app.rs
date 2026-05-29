@@ -28,14 +28,6 @@ use ratatui::layout::Rect;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
-use fi_code_shared::dto::{AgentType, CommandMeta};
-use fi_code_core::log_debug;
-use fi_code_core::log_error;
-use fi_code_core::log_info;
-use fi_code_core::log_trace;
-use fi_code_core::log_warn;
-use fi_code_shared::constants::*;
-use fi_code_core::server::transport::sse::SseEvent;
 use crate::components::{
     chat::Chat,
     input::Input,
@@ -46,9 +38,19 @@ use crate::components::{
     status_bar::StatusBar,
     Component,
 };
-use fi_code_shared::tui_event::{AppEvent, FocusArea, LogLevel, LogLine, ProviderItem, QuestionAnswer};
 use crate::layout::{LayoutManager, PanelState};
 use crate::theme::Theme;
+use fi_code_core::log_debug;
+use fi_code_core::log_error;
+use fi_code_core::log_info;
+use fi_code_core::log_trace;
+use fi_code_core::log_warn;
+use fi_code_core::server::transport::sse::SseEvent;
+use fi_code_shared::constants::*;
+use fi_code_shared::dto::{AgentType, CommandMeta};
+use fi_code_shared::tui_event::{
+    AppEvent, FocusArea, LogLevel, LogLine, ProviderItem, QuestionAnswer,
+};
 
 /// 将调试日志追加写入 ~/.config/logs/tui.log
 pub(crate) fn tui_log(msg: &str) {
@@ -61,7 +63,11 @@ pub(crate) fn tui_log(msg: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = writeln!(file, "[{}] {}", now, msg);
     }
 }
@@ -486,28 +492,51 @@ impl TuiApp {
             let lines = vec![
                 ratatui::text::Line::from(vec![
                     ratatui::text::Span::raw("工具: "),
-                    ratatui::text::Span::styled(&state.tool_name, ratatui::style::Style::default().fg(self.theme.text_primary).add_modifier(ratatui::style::Modifier::BOLD)),
+                    ratatui::text::Span::styled(
+                        &state.tool_name,
+                        ratatui::style::Style::default()
+                            .fg(self.theme.text_primary)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
                 ]),
                 ratatui::text::Line::from(vec![
                     ratatui::text::Span::raw("风险: "),
-                    ratatui::text::Span::styled(&state.risk, ratatui::style::Style::default().fg(risk_color).add_modifier(ratatui::style::Modifier::BOLD)),
+                    ratatui::text::Span::styled(
+                        &state.risk,
+                        ratatui::style::Style::default()
+                            .fg(risk_color)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
                 ]),
                 ratatui::text::Line::from(""),
-                ratatui::text::Line::from(vec![
-                    ratatui::text::Span::raw(&state.reason),
-                ]),
+                ratatui::text::Line::from(vec![ratatui::text::Span::raw(&state.reason)]),
                 ratatui::text::Line::from(""),
                 ratatui::text::Line::from(vec![
-                    ratatui::text::Span::styled("Y", ratatui::style::Style::default().fg(self.theme.text_primary).add_modifier(ratatui::style::Modifier::BOLD)),
+                    ratatui::text::Span::styled(
+                        "Y",
+                        ratatui::style::Style::default()
+                            .fg(self.theme.text_primary)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
                     ratatui::text::Span::raw(" 确认执行  |  "),
-                    ratatui::text::Span::styled("N", ratatui::style::Style::default().fg(self.theme.text_primary).add_modifier(ratatui::style::Modifier::BOLD)),
+                    ratatui::text::Span::styled(
+                        "N",
+                        ratatui::style::Style::default()
+                            .fg(self.theme.text_primary)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
                     ratatui::text::Span::raw(" 拒绝  |  "),
-                    ratatui::text::Span::styled("Esc", ratatui::style::Style::default().fg(self.theme.text_primary).add_modifier(ratatui::style::Modifier::BOLD)),
+                    ratatui::text::Span::styled(
+                        "Esc",
+                        ratatui::style::Style::default()
+                            .fg(self.theme.text_primary)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
                     ratatui::text::Span::raw(" 拒绝"),
                 ]),
             ];
-            let para = ratatui::widgets::Paragraph::new(lines)
-                .wrap(ratatui::widgets::Wrap { trim: true });
+            let para =
+                ratatui::widgets::Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: true });
             frame.render_widget(para, inner);
         }
 
@@ -608,7 +637,10 @@ impl TuiApp {
 
         // LogWindow 可见时插入焦点循环（放在 Input 之后）
         if self.log_window.is_visible() {
-            let input_idx = areas.iter().position(|a| a == &FocusArea::Input).unwrap_or(1);
+            let input_idx = areas
+                .iter()
+                .position(|a| a == &FocusArea::Input)
+                .unwrap_or(1);
             areas.insert(input_idx + 1, FocusArea::LogWindow);
         }
 
@@ -835,7 +867,8 @@ impl TuiApp {
                         let client = self.client.clone();
                         self.permission_ask = None;
                         tokio::spawn(async move {
-                            if let Err(e) = client.respond_permission(&tool_call_id, approved).await {
+                            if let Err(e) = client.respond_permission(&tool_call_id, approved).await
+                            {
                                 log_warn!("[Client] respond_permission failed: {}", e);
                             }
                         });
@@ -1009,8 +1042,15 @@ impl TuiApp {
                     SseEvent::Done { session_id } => {
                         log_info!("[Client] SSE Done | session_id={}", session_id);
                     }
-                    SseEvent::AgentInfo { agent_type, agent_name } => {
-                        log_info!("[Client] SSE AgentInfo | type={:?} name={}", agent_type, agent_name);
+                    SseEvent::AgentInfo {
+                        agent_type,
+                        agent_name,
+                    } => {
+                        log_info!(
+                            "[Client] SSE AgentInfo | type={:?} name={}",
+                            agent_type,
+                            agent_name
+                        );
                     }
                     SseEvent::CompressionStatus {
                         is_compressing,
@@ -1024,15 +1064,26 @@ impl TuiApp {
                             let current = (self.status_bar.ctx_limit() as f64
                                 * (*context_ratio as f64 / 100.0))
                                 as usize;
-                            self.status_bar.set_ctx_tokens(current, self.status_bar.ctx_limit());
+                            self.status_bar
+                                .set_ctx_tokens(current, self.status_bar.ctx_limit());
                         }
                         if !is_compressing && summary.is_some() {
                             self.chat.add_system_message(summary.as_ref().unwrap());
                         }
                         log_debug!("[Client] SSE CompressionStatus | compressing={} | progress={}% | ratio={}%", is_compressing, progress, context_ratio);
                     }
-                    SseEvent::PermissionAsk { tool_call_id, tool_name, risk, reason } => {
-                        log_info!("[Client] SSE PermissionAsk | tool={} | risk={} | reason={}", tool_name, risk, reason);
+                    SseEvent::PermissionAsk {
+                        tool_call_id,
+                        tool_name,
+                        risk,
+                        reason,
+                    } => {
+                        log_info!(
+                            "[Client] SSE PermissionAsk | tool={} | risk={} | reason={}",
+                            tool_name,
+                            risk,
+                            reason
+                        );
                         self.permission_ask = Some(PermissionAskState {
                             tool_call_id: tool_call_id.clone(),
                             tool_name: tool_name.clone(),
@@ -1050,20 +1101,20 @@ impl TuiApp {
                     self.input.set_session_id(Some(session_id.clone()));
                 }
                 if let SseEvent::Part {
-                    part: fi_code_core::session::message::Part::Usage {
-                        input_tokens,
-                        output_tokens,
-                        latency_ms,
-                        ..
-                    },
+                    part:
+                        fi_code_core::session::message::Part::Usage {
+                            prompt_tokens,
+                            completion_tokens,
+                            latency_ms,
+                            ..
+                        },
                 } = &sse_event
                 {
                     self.status_bar
-                        .set_tokens(*input_tokens as usize, *output_tokens as usize);
+                        .set_tokens(*prompt_tokens as usize, *completion_tokens as usize);
                     self.status_bar
-                        .set_ctx_tokens(*input_tokens as usize, DEFAULT_CTX_LIMIT);
-                    self.status_bar
-                        .set_latency(*latency_ms);
+                        .set_ctx_tokens(*prompt_tokens as usize, DEFAULT_CTX_LIMIT);
+                    self.status_bar.set_latency(*latency_ms);
                 }
             }
             AppEvent::ChatComplete => {
@@ -1086,7 +1137,8 @@ impl TuiApp {
                 self.current_agent = agent_type;
                 let profile = fi_code_core::agent::AgentProfile::for_type(agent_type);
                 self.status_bar.set_agent(profile.name.to_string());
-                let _ = self.event_tx
+                let _ = self
+                    .event_tx
                     .send(AppEvent::AgentSwitched {
                         agent_type,
                         agent_name: profile.name.to_string(),
@@ -1116,17 +1168,16 @@ impl TuiApp {
                     let tx = self.event_tx.clone();
                     tokio::spawn(async move {
                         if let Ok(file_tree) = client.get_file_tree(".").await {
-                            let files: Vec<fi_code_shared::dto::FileNode> =
-                                file_tree
-                                    .entries
-                                    .into_iter()
-                                    .map(|e| fi_code_shared::dto::FileNode {
-                                        path: e.path,
-                                        name: e.name,
-                                        is_dir: e.is_dir,
-                                        depth: e.depth,
-                                    })
-                                    .collect();
+                            let files: Vec<fi_code_shared::dto::FileNode> = file_tree
+                                .entries
+                                .into_iter()
+                                .map(|e| fi_code_shared::dto::FileNode {
+                                    path: e.path,
+                                    name: e.name,
+                                    is_dir: e.is_dir,
+                                    depth: e.depth,
+                                })
+                                .collect();
                             let _ = tx.send(AppEvent::SetFileTree(files)).await;
                         }
                     });
@@ -1382,10 +1433,7 @@ impl TuiApp {
             AppEvent::BrowseGitSnapshot(ref hash) => {
                 log_info!("[Client] BrowseGitSnapshot | hash={}", hash);
             }
-            AppEvent::RollbackToWave {
-                ref snapshot,
-                step,
-            } => {
+            AppEvent::RollbackToWave { ref snapshot, step } => {
                 log_info!(
                     "[Client] RollbackToWave | snapshot={} | step={}",
                     snapshot,
@@ -1420,7 +1468,10 @@ impl TuiApp {
         let agent_type = self.current_agent;
 
         tokio::spawn(async move {
-            match client.chat(session_id, message, agent_type, tx.clone()).await {
+            match client
+                .chat(session_id, message, agent_type, tx.clone())
+                .await
+            {
                 Ok(sid) => {
                     log_info!("[Client] chat stream completed | session_id={}", sid);
                     let _ = tx.send(AppEvent::ChatComplete).await;
@@ -1603,7 +1654,10 @@ impl TuiApp {
             tokio::spawn(async move {
                 match client.execute_command(&cmd_name, None, session_id).await {
                     Ok(output) => {
-                        if !matches!(output.r#type, fi_code_core::commands::registry::OutputType::Silent) {
+                        if !matches!(
+                            output.r#type,
+                            fi_code_core::commands::registry::OutputType::Silent
+                        ) {
                             let _ = tx.send(AppEvent::ShowSystemMessage(output.message)).await;
                         }
                         if let Some(meta) = output.metadata {

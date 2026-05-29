@@ -22,15 +22,15 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::{
     layout::Rect,
-    style::{Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 
 use crate::components::Component;
-use fi_code_shared::tui_event::AppEvent;
 use crate::theme::Theme;
+use fi_code_shared::tui_event::AppEvent;
 
 /// 左侧文件抽屉组件，展示项目文件树，支持上下导航与选中。
 pub struct LeftDrawer {
@@ -47,7 +47,7 @@ impl LeftDrawer {
             files: Vec::new(),
             selected_index: 0,
             #[allow(dead_code)]
-    expanded_folders: std::collections::HashSet::new(),
+            expanded_folders: std::collections::HashSet::new(),
             scroll_offset: 0,
         }
     }
@@ -206,9 +206,24 @@ mod tests {
     fn test_scroll_boundary() {
         let mut drawer = LeftDrawer::new();
         drawer.set_files(vec![
-            fi_code_shared::dto::FileNode { path: "a".into(), name: "a".into(), is_dir: false, depth: 0 },
-            fi_code_shared::dto::FileNode { path: "b".into(), name: "b".into(), is_dir: false, depth: 0 },
-            fi_code_shared::dto::FileNode { path: "c".into(), name: "c".into(), is_dir: false, depth: 0 },
+            fi_code_shared::dto::FileNode {
+                path: "a".into(),
+                name: "a".into(),
+                is_dir: false,
+                depth: 0,
+            },
+            fi_code_shared::dto::FileNode {
+                path: "b".into(),
+                name: "b".into(),
+                is_dir: false,
+                depth: 0,
+            },
+            fi_code_shared::dto::FileNode {
+                path: "c".into(),
+                name: "c".into(),
+                is_dir: false,
+                depth: 0,
+            },
         ]);
 
         drawer.scroll_down(10);

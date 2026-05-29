@@ -113,7 +113,11 @@ impl AgentWorld {
     }
 
     /// 通过 HTTP API 发送消息并收集 SSE 事件，支持指定 Agent 类型
-    pub async fn send_chat_message_with_agent(&mut self, message: &str, agent: Option<fi_code_core::agent::AgentType>) {
+    pub async fn send_chat_message_with_agent(
+        &mut self,
+        message: &str,
+        agent: Option<fi_code_core::agent::AgentType>,
+    ) {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -251,7 +255,10 @@ impl AgentWorld {
                             // BDD 测试中自动确认权限请求
                             let client = reqwest::Client::new();
                             let _ = client
-                                .post(format!("http://127.0.0.1:{}/api/permission/respond", self.port))
+                                .post(format!(
+                                    "http://127.0.0.1:{}/api/permission/respond",
+                                    self.port
+                                ))
                                 .json(&json!({
                                     "tool_call_id": tool_call_id,
                                     "approved": true
@@ -267,7 +274,12 @@ impl AgentWorld {
                                 task_count: None,
                             }
                         }
-                        Ev::QuestionAsk { tool_call_id, options, recommended, .. } => {
+                        Ev::QuestionAsk {
+                            tool_call_id,
+                            options,
+                            recommended,
+                            ..
+                        } => {
                             // BDD 测试中自动回答 question_ask：选择推荐选项或第一个选项
                             let answer = if let Some(rec_id) = recommended {
                                 options.iter().find(|o| o.id == *rec_id).map(|o| json!({"type": "option", "id": o.id.clone(), "label": o.label.clone()}))
@@ -277,7 +289,10 @@ impl AgentWorld {
                             if let Some(ans) = answer {
                                 let client = reqwest::Client::new();
                                 let _ = client
-                                    .post(format!("http://127.0.0.1:{}/api/question/respond", self.port))
+                                    .post(format!(
+                                        "http://127.0.0.1:{}/api/question/respond",
+                                        self.port
+                                    ))
                                     .json(&json!({
                                         "tool_call_id": tool_call_id,
                                         "answer": ans

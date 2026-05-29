@@ -27,9 +27,9 @@ use ratatui::{
     Frame,
 };
 
+use crate::theme::Theme;
 use fi_code_core::server::transport::sse::TaskProgressItem;
 use fi_code_shared::tui_event::CardAction;
-use crate::theme::Theme;
 
 /// 卡片数据结构，表示聊天界面中的一个结构化信息块。
 #[derive(Debug, Clone)]

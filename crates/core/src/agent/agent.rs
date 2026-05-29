@@ -35,6 +35,7 @@
 
 use anyhow::Result;
 
+use crate::agent::profile::AgentProfile;
 use crate::agent::PromptBuilder;
 use crate::log_block;
 use crate::log_debug;
@@ -46,7 +47,6 @@ use crate::provider::base_client::{AIClient, ChunkContent, FinishReason, TokenUs
 use crate::provider::execute_tool_calls;
 use crate::provider::Chunk;
 use crate::session::message::{Message, Part, Role, TokenUsage as MsgTokenUsage};
-use crate::agent::profile::AgentProfile;
 use crate::skills::get_registry;
 use crate::tools::tool_schema;
 use fi_code_shared::constants::*;
@@ -66,6 +66,12 @@ pub struct LoopState {
     pub token_usage: TokenUsage,
     /// 增量压缩摘要，仅在内存中存在，不持久化
     pub compression_summary: Option<Message>,
+    /// 用户原始需求锚点，用于防止长会话中 Agent 偏离目标
+    /// 从第一条 User 消息提取，作为独立 System 消息插入每轮 LLM 请求
+    pub user_intent: Option<String>,
+    /// 是否已经注入过任务锚点校验消息
+    /// 与 transition_reason 分离，避免被 run_one_turn 内的 direct_output 覆盖导致死循环
+    pub intent_verified: bool,
 }
 
 impl LoopState {
@@ -76,6 +82,8 @@ impl LoopState {
             transition_reason: None,
             token_usage: TokenUsage::default(),
             compression_summary: None,
+            user_intent: None,
+            intent_verified: false,
         }
     }
 }
@@ -353,7 +361,14 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
                 state.turn_count
             );
 
-            match crate::agent::compression::compress_history(state, client, sse_sender, Some(&turn_cx)).await {
+            match crate::agent::compression::compress_history(
+                state,
+                client,
+                sse_sender,
+                Some(&turn_cx),
+            )
+            .await
+            {
                 Ok(summary) => {
                     state.compression_summary = Some(summary);
                     log_info!("[Compression] Completed successfully");
@@ -369,7 +384,8 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
     let schema = tool_schema().await;
     let profile = AgentProfile::for_type(agent_type);
     let filtered_schema = profile.tool_filter.apply(&schema);
-    let system_prompt = PromptBuilder::new().build_with_profile(&filtered_schema, registry, profile);
+    let system_prompt =
+        PromptBuilder::new().build_with_profile(&filtered_schema, &registry, profile);
 
     #[cfg(debug_assertions)]
     PROMPT_LOGGED_ONCE.call_once(|| {
@@ -452,7 +468,11 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
                     ChunkContent::Text(_) | ChunkContent::Think(_) | ChunkContent::ToolUse(_) => {
                         first_chunk_received = true;
                         let elapsed_ms = llm_call_start.elapsed().as_millis() as u64;
-                        log_info!("[TTFT] first chunk from LLM | latency={}ms | turn={}", elapsed_ms, state.turn_count);
+                        log_info!(
+                            "[TTFT] first chunk from LLM | latency={}ms | turn={}",
+                            elapsed_ms,
+                            state.turn_count
+                        );
                     }
                     _ => {}
                 }
@@ -476,7 +496,11 @@ pub async fn run_one_turn<C: AIClient + ?Sized>(
         .await
     {
         // 记录错误到 LLM generation span（drop 时自动结束）
-        log_error!("[Agent] stream_message failed | turn={} | err={}", state.turn_count, e);
+        log_error!(
+            "[Agent] stream_message failed | turn={} | err={}",
+            state.turn_count,
+            e
+        );
         return Err(e);
     }
 
@@ -751,6 +775,28 @@ pub async fn agent_loop<C: AIClient + ?Sized>(
 ) -> Result<()> {
     let mut retry_count = 0u32;
 
+    // 提取用户原始需求作为任务锚点（仅在首次进入时提取）
+    if state.user_intent.is_none() {
+        if let Some(first_user_msg) = state.messages.iter().find(|m| m.role == Role::User) {
+            let intent: String = first_user_msg
+                .parts
+                .iter()
+                .filter_map(|p| match p {
+                    Part::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !intent.is_empty() {
+                state.user_intent = Some(intent);
+                log_info!(
+                    "[Agent] user_intent captured | len={}",
+                    state.user_intent.as_ref().unwrap().len()
+                );
+            }
+        }
+    }
+
     log_info!(
         "[Agent] agent_loop start | messages={} | turn_count={}",
         state.messages.len(),
@@ -764,10 +810,52 @@ pub async fn agent_loop<C: AIClient + ?Sized>(
         let token_usage_before = state.token_usage;
         let transition_reason_before = state.transition_reason.clone();
 
-        match run_one_turn(client, state, agent_type, on_text, on_tool_event, sse_sender, parent_cx).await {
+        log_debug!(
+            "[Agent] loop check | user_intent={:?} | transition_reason={:?}",
+            state.user_intent.as_ref().map(|s| &s[..s.len().min(50)]),
+            state.transition_reason
+        );
+
+        match run_one_turn(
+            client,
+            state,
+            agent_type,
+            on_text,
+            on_tool_event,
+            sse_sender,
+            parent_cx,
+        )
+        .await
+        {
             Ok(should_continue) => {
                 retry_count = 0;
                 if !should_continue {
+                    // 任务完成校验：如果存在原始需求且未校验过，插入校验消息
+                    // 让 LLM 自检是否真的完成了全部任务，防止因 direct_output 优化而过早结束
+                    if let Some(ref intent) = state.user_intent {
+                        if !state.intent_verified {
+                            let session_id = state
+                                .messages
+                                .last()
+                                .map(|m| m.session_id.clone())
+                                .unwrap_or_default();
+                            let verify_msg = format!(
+                                "【任务校验】这是你开始工作时收到的原始需求，请自检当前进度是否已完全满足：\n\n{}\n\n如果已完成请直接回复'任务已完成'；如果还有遗漏请继续调用工具执行。",
+                                intent
+                            );
+                            state.messages.push(Message::new(
+                                session_id,
+                                Role::User,
+                                vec![Part::Text { text: verify_msg }],
+                            ));
+                            state.intent_verified = true;
+                            log_info!(
+                                "[Agent] intent verification injected | turn={}",
+                                state.turn_count
+                            );
+                            continue;
+                        }
+                    }
                     break;
                 }
             }

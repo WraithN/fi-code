@@ -19,10 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use ratatui::{
-    text::Line,
-    widgets::Paragraph,
-};
+use ratatui::{text::Line, widgets::Paragraph};
 
 use super::*;
 

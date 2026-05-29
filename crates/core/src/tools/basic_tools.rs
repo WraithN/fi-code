@@ -26,6 +26,8 @@ use crate::utils::workspace::workspace_dir;
 use fi_code_shared::constants::*;
 use glob::glob_with;
 use glob::MatchOptions;
+use ignore::Walk;
+use std::cmp::min;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -41,16 +43,6 @@ use std::time::Duration;
 
 pub struct BasicTool {}
 
-// 智能 grep 黑名单：这些目录永远不会被搜索
-const BLOCKED_DIRS: &[&str] = &[
-    ".cache", ".cargo", ".env", ".git", ".hg", ".idea",
-    ".mypy_cache", ".next", ".nuxt", ".pytest_cache", ".ruff_cache",
-    ".rustup", ".svn", ".tox", ".venv", ".vscode", ".worktrees",
-    "__pycache__", "build", "coverage", "deps", "dist",
-    "env", "htmlcov", "node_modules", "out", "target",
-    "third_party", "vendor", "venv",
-];
-
 /// 缓存系统是否安装 ripgrep，避免每次 run_grep 都 spawn 子进程
 static RG_AVAILABLE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
     std::process::Command::new("rg")
@@ -60,19 +52,8 @@ static RG_AVAILABLE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
         .unwrap_or(false)
 });
 
-/// 检查路径是否包含黑名单中的目录段
-fn is_blocked_path(path: &std::path::Path) -> bool {
-    path.components().any(|comp| {
-        if let Some(name) = comp.as_os_str().to_str() {
-            BLOCKED_DIRS.contains(&name)
-        } else {
-            false
-        }
-    })
-}
-
 /// 检查是否为隐藏文件/目录（以点开头的名称）
-fn is_hidden(entry: &walkdir::DirEntry) -> bool {
+fn is_hidden(entry: &ignore::DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
@@ -146,9 +127,18 @@ impl BasicTool {
     // `BufReader` 带缓冲的读取器，减少系统调用次数，提升 IO 性能
     // `collect::<Result<Vec<_>, _>>()` 把迭代器收集成 Result，任何一行读取失败都会提前返回错误
 
-    pub fn run_read(path: &str, limit: Option<usize>) -> Result<String, String> {
+    pub fn run_read(
+        path: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<String, String> {
         let path = Self::safe_path(path)?;
-        log_trace!("run_read | path={:?} | limit={:?}", path, limit);
+        log_trace!(
+            "run_read | path={:?} | limit={:?} | offset={:?}",
+            path,
+            limit,
+            offset
+        );
 
         let file = File::open(&path).map_err(|e| format!("Error: {}", e))?;
 
@@ -158,22 +148,33 @@ impl BasicTool {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Error: {}", e))?;
 
-        let full_content = lines.join("\n");
-
-        let preview = if let Some(lim) = limit {
-            if lim < lines.len() {
-                let mut result: Vec<String> =
-                    lines.iter().take(lim).map(|s| s.to_string()).collect();
-                result.push(format!("... ({} more)", lines.len() - lim));
-                result.join("\n")
-            } else {
-                full_content.clone()
-            }
+        let total_lines = lines.len();
+        let start = offset.unwrap_or(1).saturating_sub(1); // 1-based → 0-based
+        let start = min(start, total_lines);
+        let end = if let Some(lim) = limit {
+            min(start + lim, total_lines)
         } else {
-            full_content.clone()
+            total_lines
         };
 
-        Ok(preview.chars().take(OUTPUT_TRUNCATE_LENGTH).collect::<String>())
+        if start >= total_lines {
+            return Ok("".to_string());
+        }
+
+        let selected: Vec<String> = lines[start..end].to_vec();
+        let mut result = selected.join("\n");
+
+        if end < total_lines {
+            result.push_str(&format!("\n... ({} more lines)", total_lines - end));
+        }
+        if start > 0 {
+            result = format!("... ({} lines skipped)\n{}", start, result);
+        }
+
+        Ok(result
+            .chars()
+            .take(OUTPUT_TRUNCATE_LENGTH)
+            .collect::<String>())
     }
 
     // =========================================================================
@@ -378,14 +379,9 @@ impl BasicTool {
     // 同步函数：递归搜索目录下匹配正则的文件内容
     // =========================================================================
 
-    /// 使用系统 ripgrep 进行智能搜索，自动排除黑名单目录和隐藏文件
+    /// 使用系统 ripgrep 进行智能搜索，自动尊重 .gitignore
     fn rg_smart_grep(dir: &std::path::Path, pattern: &str) -> Result<String, String> {
         log_trace!("rg_smart_grep | dir={:?} | pattern={}", dir, pattern);
-
-        // rg 的 --glob 不排除显式传入的路径，所以如果根目录本身是黑名单，提前返回
-        if is_blocked_path(dir) {
-            return Ok("No matches found".to_string());
-        }
 
         let mut cmd = std::process::Command::new("rg");
         cmd.arg(pattern)
@@ -393,16 +389,11 @@ impl BasicTool {
             .arg("--line-number")
             .arg("--no-heading")
             .arg("--color=never")
-            .arg("--max-columns").arg("200")
-            .arg("--no-hidden")
             .arg("--follow");
 
-        // 将 BLOCKED_DIRS 转为 rg 的 glob 排除规则
-        for blocked in BLOCKED_DIRS {
-            cmd.arg("--glob").arg(format!("!**/{}/**", blocked));
-        }
-
-        let output = cmd.output().map_err(|e| format!("rg execution failed: {}", e))?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("rg execution failed: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -483,38 +474,20 @@ impl BasicTool {
         re: &regex::Regex,
         matches: &mut Vec<String>,
     ) -> Result<(), String> {
-        use walkdir::WalkDir;
-
-        let walker = WalkDir::new(dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_entry(|e| {
-                // 跳过黑名单目录和隐藏目录
-                if e.file_type().is_dir() {
-                    if is_blocked_path(e.path()) {
-                        return false;
-                    }
-                    if is_hidden(e) {
-                        return false;
-                    }
-                }
-                true
-            });
-
-        for entry in walker {
-            let entry = match entry {
+        for result in Walk::new(dir) {
+            let entry = match result {
                 Ok(e) => e,
                 Err(e) => {
-                    log_trace!("walkdir error: {}", e);
+                    log_trace!("walk error: {}", e);
                     continue;
                 }
             };
 
-            if !entry.file_type().is_file() {
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                 continue;
             }
 
-            // 跳过隐藏文件
+            // 跳过隐藏文件（与 rg 默认行为保持一致）
             if is_hidden(&entry) {
                 continue;
             }
@@ -536,51 +509,107 @@ impl BasicTool {
 
         log_trace!("run_glob | pattern={} | dir={:?}", pattern, search_dir);
 
-        let full_pattern = search_dir.join(pattern);
-        let full_pattern_str = full_pattern.to_str().ok_or("Invalid pattern path")?;
+        // 优先使用 ripgrep --files（自动尊重 .gitignore，性能更好）
+        if *RG_AVAILABLE {
+            return Self::rg_smart_glob(pattern, &search_dir, &base);
+        }
 
-        let options = MatchOptions {
-            case_sensitive: true,
-            require_literal_separator: false,
-            require_literal_leading_dot: false,
-        };
+        // Fallback：使用 ignore::Walk + glob 过滤（同样尊重 .gitignore）
+        Self::walk_glob(pattern, &search_dir, &base)
+    }
+
+    /// 使用 ripgrep --files 快速列出文件，再按 glob 模式过滤
+    fn rg_smart_glob(pattern: &str, search_dir: &Path, base: &Path) -> Result<String, String> {
+        log_trace!("rg_smart_glob | pattern={} | dir={:?}", pattern, search_dir);
+
+        let output = std::process::Command::new("rg")
+            .arg("--files")
+            .arg(search_dir)
+            .arg("--follow")
+            .output()
+            .map_err(|e| format!("rg --files execution failed: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // rg 返回 1 表示无文件，这是正常情况
+            if output.status.code() == Some(1) && stderr.is_empty() {
+                return Ok("No files found matching pattern".to_string());
+            }
+            return Err(format!("rg error: {}", stderr));
+        }
+
+        let glob_pattern =
+            glob::Pattern::new(pattern).map_err(|e| format!("Invalid glob pattern: {}", e))?;
+
+        let mut files = Vec::new();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        for line in stdout.lines() {
+            let path = Path::new(line);
+            // 转换为相对路径进行 glob 匹配
+            let relative = path.strip_prefix(base).unwrap_or(path);
+            let relative_str = relative.to_str().unwrap_or("");
+
+            if !glob_pattern.matches(relative_str) {
+                continue;
+            }
+
+            files.push(relative_str.to_string());
+
+            if files.len() >= 1000 {
+                files.push("... (too many matches)".to_string());
+                break;
+            }
+        }
+
+        if files.is_empty() {
+            Ok("No files found matching pattern".to_string())
+        } else {
+            let result = files.join("\n");
+            Ok(result.chars().take(OUTPUT_TRUNCATE_LENGTH).collect())
+        }
+    }
+
+    /// Fallback：使用 ignore::Walk 遍历，再按 glob 模式过滤
+    fn walk_glob(pattern: &str, search_dir: &Path, base: &Path) -> Result<String, String> {
+        log_trace!("walk_glob | pattern={} | dir={:?}", pattern, search_dir);
+
+        let glob_pattern =
+            glob::Pattern::new(pattern).map_err(|e| format!("Invalid glob pattern: {}", e))?;
 
         let mut files = Vec::new();
 
-        match glob_with(full_pattern_str, options) {
-            Ok(paths) => {
-                for entry in paths {
-                    match entry {
-                        Ok(path) => {
-                            if !path.is_file() {
-                                continue;
-                            }
-                            let canonical =
-                                path.canonicalize().map_err(|e| format!("Error: {}", e))?;
-                            if !canonical.starts_with(&base) {
-                                continue;
-                            }
-                            let relative = canonical
-                                .strip_prefix(&base)
-                                .map_err(|e| format!("Error: {}", e))?
-                                .display()
-                                .to_string();
-                            files.push(relative);
-
-                            if files.len() >= 1000 {
-                                files.push("... (too many matches)".to_string());
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            log_trace!("glob error: {}", e);
-                            continue;
-                        }
-                    }
+        for result in Walk::new(search_dir) {
+            let entry = match result {
+                Ok(e) => e,
+                Err(e) => {
+                    log_trace!("walk error: {}", e);
+                    continue;
                 }
+            };
+
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                continue;
             }
-            Err(e) => {
-                return Err(format!("Invalid pattern: {}", e));
+
+            // 跳过隐藏文件（与 rg 默认行为保持一致）
+            if is_hidden(&entry) {
+                continue;
+            }
+
+            let path = entry.path();
+            let relative = path.strip_prefix(base).unwrap_or(path);
+            let relative_str = relative.to_str().unwrap_or("");
+
+            if !glob_pattern.matches(relative_str) {
+                continue;
+            }
+
+            files.push(relative_str.to_string());
+
+            if files.len() >= 1000 {
+                files.push("... (too many matches)".to_string());
+                break;
             }
         }
 
@@ -712,10 +741,38 @@ mod tests {
     #[test]
     fn test_run_read() {
         ensure_workspace();
-        let content = BasicTool::run_read("src/tools/basic_tools.rs", Some(DEFAULT_READ_MAX_LINES)).unwrap();
+        let content = BasicTool::run_read(
+            "src/tools/basic_tools.rs",
+            Some(DEFAULT_READ_MAX_LINES),
+            None,
+        )
+        .unwrap();
         assert_ne!(content, "");
         // 验证返回的是纯文本而非 JSON
-        assert!(!content.starts_with('{'), "run_read should return plain text, not JSON");
+        assert!(
+            !content.starts_with('{'),
+            "run_read should return plain text, not JSON"
+        );
+    }
+
+    #[test]
+    fn test_run_read_with_offset() {
+        ensure_workspace();
+        let content = BasicTool::run_read("src/tools/basic_tools.rs", Some(5), Some(1)).unwrap();
+        // 从第1行开始读5行，应该包含 MIT License 头
+        assert!(content.contains("MIT License"), "Should contain first line");
+
+        let content_offset =
+            BasicTool::run_read("src/tools/basic_tools.rs", Some(5), Some(10)).unwrap();
+        // 从第10行开始，应该不包含 MIT License 头
+        assert!(
+            !content_offset.contains("MIT License"),
+            "Should skip first lines"
+        );
+        assert!(
+            content_offset.contains("... (9 lines skipped)"),
+            "Should show skipped lines hint"
+        );
     }
 
     #[test]
@@ -733,7 +790,11 @@ mod tests {
         assert!(result.is_ok());
         let content = result.unwrap();
         // 新文件应返回提示文本
-        assert!(content.contains("New file") || content.contains("Wrote"), "write result should be plain text, got: {}", content);
+        assert!(
+            content.contains("New file") || content.contains("Wrote"),
+            "write result should be plain text, got: {}",
+            content
+        );
         BasicTool::run_bash(&format!("rm {}", path));
     }
 
@@ -825,48 +886,66 @@ mod tests {
         let result = BasicTool::git_write_tree();
         // 在 git 仓库中应该成功，否则可能失败
         if std::path::Path::new(".git").exists() {
-            assert!(result.is_ok(), "git write-tree should succeed in a git repo");
+            assert!(
+                result.is_ok(),
+                "git write-tree should succeed in a git repo"
+            );
             let hash = result.unwrap();
             assert!(!hash.is_empty(), "tree hash should not be empty");
         }
     }
 
     #[test]
-    fn test_grep_skips_blocked_dirs() {
+    fn test_grep_respects_gitignore() {
         use std::fs;
 
-        let tmp = tempfile::Builder::new().prefix("testgrep").tempdir_in(".").unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("testgrep")
+            .tempdir_in(".")
+            .unwrap();
         let root = tmp.path();
 
         // 正常文件应该被搜到
         fs::write(root.join("main.rs"), "fn main() {\n    let x = 42;\n}\n").unwrap();
 
-        // target/ 目录下的文件不应该被搜到
+        // target/ 目录被 .gitignore 排除，不应该被搜到
         let target_dir = root.join("target");
         fs::create_dir(&target_dir).unwrap();
         fs::write(target_dir.join("cached.rs"), "let x = 42;\n").unwrap();
 
-        // .git/ 目录下的文件不应该被搜到
+        // .git/ 目录被 .gitignore 排除，不应该被搜到
         let git_dir = root.join(".git");
         fs::create_dir(&git_dir).unwrap();
         fs::write(git_dir.join("config"), "let x = 42;\n").unwrap();
 
-        // node_modules/ 目录下的文件不应该被搜到
+        // node_modules/ 目录被 .gitignore 排除，不应该被搜到
         let node_dir = root.join("node_modules");
         fs::create_dir(&node_dir).unwrap();
         fs::write(node_dir.join("index.js"), "let x = 42;\n").unwrap();
 
+        // 创建 .gitignore 文件
+        fs::write(root.join(".gitignore"), "target/\n.git/\nnode_modules/\n").unwrap();
+
         let result = BasicTool::run_grep(root.to_str().unwrap(), "let x = 42").unwrap();
         assert!(result.contains("main.rs"), "Should find match in main.rs");
-        assert!(!result.contains("cached.rs"), "Should skip target/ directory");
-        assert!(!result.contains("index.js"), "Should skip node_modules/ directory");
+        assert!(
+            !result.contains("cached.rs"),
+            "Should skip target/ directory via .gitignore"
+        );
+        assert!(
+            !result.contains("index.js"),
+            "Should skip node_modules/ directory via .gitignore"
+        );
     }
 
     #[test]
     fn test_grep_skips_hidden_files() {
         use std::fs;
 
-        let tmp = tempfile::Builder::new().prefix("testgrep").tempdir_in(".").unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("testgrep")
+            .tempdir_in(".")
+            .unwrap();
         let root = tmp.path();
 
         // 正常文件应该被搜到
@@ -876,7 +955,10 @@ mod tests {
         fs::write(root.join(".hidden.rs"), "let secret = 42;\n").unwrap();
 
         let result = BasicTool::run_grep(root.to_str().unwrap(), "let secret = 42").unwrap();
-        assert!(result.contains("visible.rs"), "Should find match in visible.rs");
+        assert!(
+            result.contains("visible.rs"),
+            "Should find match in visible.rs"
+        );
         assert!(!result.contains(".hidden.rs"), "Should skip hidden files");
     }
 
@@ -884,7 +966,10 @@ mod tests {
     fn test_grep_skips_hidden_dirs() {
         use std::fs;
 
-        let tmp = tempfile::Builder::new().prefix("testgrep").tempdir_in(".").unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("testgrep")
+            .tempdir_in(".")
+            .unwrap();
         let root = tmp.path();
 
         // 正常文件应该被搜到
@@ -895,8 +980,15 @@ mod tests {
         fs::create_dir(&hidden_dir).unwrap();
         fs::write(hidden_dir.join("inside.rs"), "let hidden_dir_test = 42;\n").unwrap();
 
-        let result = BasicTool::run_grep(root.to_str().unwrap(), "let hidden_dir_test = 42").unwrap();
-        assert!(result.contains("normal.rs"), "Should find match in normal.rs");
-        assert!(!result.contains("inside.rs"), "Should skip files inside hidden directories");
+        let result =
+            BasicTool::run_grep(root.to_str().unwrap(), "let hidden_dir_test = 42").unwrap();
+        assert!(
+            result.contains("normal.rs"),
+            "Should find match in normal.rs"
+        );
+        assert!(
+            !result.contains("inside.rs"),
+            "Should skip files inside hidden directories"
+        );
     }
 }

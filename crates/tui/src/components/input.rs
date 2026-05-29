@@ -28,10 +28,10 @@ use ratatui::{
     Frame,
 };
 
-use fi_code_shared::dto::CommandMeta;
 use crate::components::Component;
-use fi_code_shared::tui_event::AppEvent;
 use crate::theme::Theme;
+use fi_code_shared::dto::CommandMeta;
+use fi_code_shared::tui_event::AppEvent;
 use unicode_width::UnicodeWidthStr;
 
 /// 子菜单类型，用于区分不同命令打开的交互式菜单。
@@ -68,7 +68,7 @@ pub struct Input {
     at_picker_filter: String,
     // 输入历史记录（循环缓存，最大 100 条）
     history: Vec<String>,
-    history_index: Option<usize>, // None 表示当前在编辑新内容
+    history_index: Option<usize>,  // None 表示当前在编辑新内容
     history_draft: Option<String>, // 浏览历史时暂存当前草稿
 }
 
@@ -1056,14 +1056,12 @@ mod tests {
         let mut input = Input::new();
         assert!(!input.is_at_picker_visible());
 
-        input.set_at_picker_files(vec![
-            fi_code_shared::dto::FileNode {
-                path: "a.rs".into(),
-                name: "a.rs".into(),
-                is_dir: false,
-                depth: 0,
-            },
-        ]);
+        input.set_at_picker_files(vec![fi_code_shared::dto::FileNode {
+            path: "a.rs".into(),
+            name: "a.rs".into(),
+            is_dir: false,
+            depth: 0,
+        }]);
         input.at_picker_visible = true;
         assert!(input.is_at_picker_visible());
 
@@ -1112,14 +1110,12 @@ mod tests {
     #[test]
     fn test_at_picker_select_file_inserts_path() {
         let mut input = Input::new();
-        input.set_at_picker_files(vec![
-            fi_code_shared::dto::FileNode {
-                path: "src/main.rs".into(),
-                name: "main.rs".into(),
-                is_dir: false,
-                depth: 1,
-            },
-        ]);
+        input.set_at_picker_files(vec![fi_code_shared::dto::FileNode {
+            path: "src/main.rs".into(),
+            name: "main.rs".into(),
+            is_dir: false,
+            depth: 1,
+        }]);
         input.at_picker_visible = true;
         input.at_picker_selected = 0;
 

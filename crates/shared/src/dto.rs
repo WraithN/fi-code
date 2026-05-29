@@ -119,8 +119,8 @@ pub enum Part {
     },
     /// 用量统计
     Usage {
-        input_tokens: u32,
-        output_tokens: u32,
+        prompt_tokens: u32,
+        completion_tokens: u32,
         latency_ms: u32,
         cost: Option<f64>,
     },
@@ -134,10 +134,7 @@ pub enum Part {
     },
     /// 系统通知（如压缩完成、Agent 切换等）
     #[serde(rename = "system_notice")]
-    SystemNotice {
-        kind: String,
-        content: String,
-    },
+    SystemNotice { kind: String, content: String },
 }
 
 // -----------------------------------------------------------------------------
@@ -196,7 +193,6 @@ pub enum AgentType {
     Build,
     Plan,
 }
-
 
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

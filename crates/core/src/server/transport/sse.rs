@@ -27,7 +27,6 @@ use tokio_stream::wrappers::ReceiverStream;
 // 已从 fi-code-shared crate 重新导出，保留此 re-export 维持向后兼容
 pub use fi_code_shared::dto::{SseEvent, TaskProgressItem};
 
-
 /// SSE 发送端，供 agent_loop 写入事件
 #[derive(Clone)]
 pub struct SseSender {
@@ -157,5 +156,4 @@ mod tests {
         let received: Option<SseEvent> = stream.next().await;
         assert!(received.is_some());
     }
-
 }

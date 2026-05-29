@@ -63,13 +63,17 @@ async fn user_sends_message(world: &mut AgentWorld, message: String) {
 
 #[when(regex = r#"^用户以 Build Agent 发送消息 "(.*)"$"#)]
 async fn user_sends_message_build_agent(world: &mut AgentWorld, message: String) {
-    world.send_chat_message_with_agent(&message, Some(fi_code_core::agent::AgentType::Build)).await;
+    world
+        .send_chat_message_with_agent(&message, Some(fi_code_core::agent::AgentType::Build))
+        .await;
     world.last_response = world.all_message_text();
 }
 
 #[when(regex = r#"^用户以 Plan Agent 发送消息 "(.*)"$"#)]
 async fn user_sends_message_plan_agent(world: &mut AgentWorld, message: String) {
-    world.send_chat_message_with_agent(&message, Some(fi_code_core::agent::AgentType::Plan)).await;
+    world
+        .send_chat_message_with_agent(&message, Some(fi_code_core::agent::AgentType::Plan))
+        .await;
     world.last_response = world.all_message_text();
 }
 
@@ -104,30 +108,29 @@ async fn user_receives_task_summary(world: &mut AgentWorld) {
 
 #[then("Agent 应该收到 AgentInfo 事件，类型为 Build")]
 async fn agent_received_build_agent_info(world: &mut AgentWorld) {
-    let has_agent_info = world.events.iter().any(|e| {
-        e.event_type == "AgentInfo"
-    });
+    let has_agent_info = world.events.iter().any(|e| e.event_type == "AgentInfo");
     assert!(has_agent_info, "Expected AgentInfo event for Build agent");
 }
 
 #[then("Agent 应该收到 AgentInfo 事件，类型为 Plan")]
 async fn agent_received_plan_agent_info(world: &mut AgentWorld) {
-    let has_agent_info = world.events.iter().any(|e| {
-        e.event_type == "AgentInfo"
-    });
+    let has_agent_info = world.events.iter().any(|e| e.event_type == "AgentInfo");
     assert!(has_agent_info, "Expected AgentInfo event for Plan agent");
 }
 
 #[then(regex = r#"^Agent 应该收到 ToolError 事件，内容为 "(.*)"$"#)]
 async fn agent_received_tool_error(world: &mut AgentWorld, expected: String) {
     let tool_errors = world.tool_error_events();
-    let found = tool_errors.iter().any(|e| {
-        e.content.as_deref().unwrap_or("").contains(&expected)
-    });
+    let found = tool_errors
+        .iter()
+        .any(|e| e.content.as_deref().unwrap_or("").contains(&expected));
     assert!(
         found,
         "Expected ToolError containing '{}', but got: {:?}",
         expected,
-        tool_errors.iter().map(|e| e.content.clone()).collect::<Vec<_>>()
+        tool_errors
+            .iter()
+            .map(|e| e.content.clone())
+            .collect::<Vec<_>>()
     );
 }
